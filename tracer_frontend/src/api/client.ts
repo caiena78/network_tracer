@@ -4,6 +4,7 @@ import type {
   HistoryDetail,
   HistoryListResponse,
   InterfaceDetailResult,
+  OrdrDeviceData,
   TraceSummary,
   TraceResponse,
 } from '../types/trace';
@@ -82,6 +83,15 @@ export async function listHistory(params: {
 export async function getHistoryEntry(id: string): Promise<HistoryDetail> {
   try {
     const res = await http.get<HistoryDetail>(`/api/v1/history/${id}`);
+    return res.data;
+  } catch (err) {
+    throw new Error(extractMessage(err));
+  }
+}
+
+export async function queryOrdr(ip: string): Promise<OrdrDeviceData> {
+  try {
+    const res = await http.get<OrdrDeviceData>(`/api/v1/ordr/${encodeURIComponent(ip)}`);
     return res.data;
   } catch (err) {
     throw new Error(extractMessage(err));

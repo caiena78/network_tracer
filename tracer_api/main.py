@@ -60,6 +60,7 @@ from .models        import (
     HistorySummary,
     InterfaceDetailRequest,
     InterfaceDetailResponse,
+    OrdrDeviceData,
     TraceRequest,
     TraceResponse,
     TraceSummary,
@@ -469,6 +470,67 @@ async def delete_history_entry(entry_id: str) -> None:
             detail=f"History entry {entry_id!r} not found",
         )
 
+
+
+# ---------------------------------------------------------------------------
+# ORDR device intelligence
+# ---------------------------------------------------------------------------
+
+@app.get(
+    "/api/v1/ordr/{ip}",
+    response_model=OrdrDeviceData,
+    summary="Query ORDR for device intelligence by IP",
+    tags=["ordr"],
+    dependencies=[Depends(_check_api_key)],
+)
+async def get_ordr_device(ip: str) -> Dict:
+    """
+    Look up a device in the ORDR API by IP address.
+
+    Credentials are resolved from Vault (``TRACER_ORDR_VAULT_PATH``) or
+    from ``TRACER_ORDR_*`` environment variables.
+
+    Returns the full ORDR device record.  Raises 404 when no record exists
+    for the given IP, 503 when ORDR credentials are not configured, and
+    500 on any other ORDR API error.
+    """
+    import ipaddress
+
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{ip!r} is not a valid IP address",
+        )
+
+    def _run() -> Dict:
+        from .ordr_client import (
+            OrdrDeviceNotFoundError,
+            OrdrNotConfiguredError,
+            query_by_ip,
+        )
+        try:
+            return query_by_ip(ip)
+        except OrdrNotConfiguredError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(exc),
+            )
+        except OrdrDeviceNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No ORDR record found for IP {ip}",
+            )
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=str(exc),
+            )
+
+    loop   = asyncio.get_running_loop()
+    result = await loop.run_in_executor(_thread_pool, _run)
+    return result
 
 
 # ---------------------------------------------------------------------------

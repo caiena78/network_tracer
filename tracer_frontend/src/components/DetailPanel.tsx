@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, ExternalLink, RefreshCw } from 'lucide-react';
-import type { SelectedElement, NodeData, EdgeData, StackMember } from '../types/trace';
+import type { OrdrDeviceData, SelectedElement, NodeData, EdgeData, StackMember } from '../types/trace';
 import { useTraceStore } from '../store/traceStore';
-import { fetchInterfaceDetail } from '../api/client';
+import { fetchInterfaceDetail, queryOrdr } from '../api/client';
 import { RoutingSection } from './ConnectionEdge';
 
 // ---------------------------------------------------------------------------
@@ -194,13 +194,184 @@ function RawBlock({ title, text }: { title: string; text: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// ORDR data panel
+// ---------------------------------------------------------------------------
+
+const RISK_COLORS: Record<string, string> = {
+  HIGH:     'var(--color-error)',
+  MEDIUM:   'var(--color-warning)',
+  LOW:      'var(--color-success)',
+  CRITICAL: 'var(--color-error)',
+};
+
+function OrdrPanel({ ip }: { ip: string }) {
+  const [data,    setData]    = useState<OrdrDeviceData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+  const [open,    setOpen]    = useState(false);
+
+  const handleFetch = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await queryOrdr(ip);
+      setData(result);
+      setOpen(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ORDR query failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: '12px', borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
+      <button
+        onClick={() => void handleFetch()}
+        disabled={loading}
+        className="btn btn-secondary"
+        style={{
+          width:           '100%',
+          justifyContent:  'center',
+          gap:             '7px',
+          fontSize:        '12px',
+          padding:         '6px 10px',
+          display:         'flex',
+          alignItems:      'center',
+        }}
+      >
+        <RefreshCw size={13} className={loading ? 'spin' : ''} />
+        {loading ? 'Querying ORDR…' : data ? 'Refresh ORDR Data' : 'Get ORDR Data'}
+      </button>
+
+      {error && (
+        <div style={{ fontSize: '11px', color: 'var(--color-error)', marginTop: '6px' }}>{error}</div>
+      )}
+
+      {data && open && (
+        <div style={{ marginTop: '10px' }}>
+          {/* Header strip */}
+          <div style={{
+            display:        'flex',
+            alignItems:     'center',
+            justifyContent: 'space-between',
+            marginBottom:   '8px',
+          }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.07em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+              ORDR Device Record
+            </div>
+            <button className="btn btn-ghost" style={{ padding: '2px' }} onClick={() => setOpen(false)}>
+              <X size={13} />
+            </button>
+          </div>
+
+          {/* Risk badge */}
+          {data.risk_state && (
+            <div style={{
+              display:        'inline-flex',
+              alignItems:     'center',
+              gap:            '6px',
+              marginBottom:   '8px',
+              padding:        '3px 8px',
+              borderRadius:   '12px',
+              background:     'var(--bg-code)',
+              border:         `1px solid ${RISK_COLORS[data.risk_state?.toUpperCase() ?? ''] ?? 'var(--border-color)'}`,
+              fontSize:       '11px',
+              fontWeight:     700,
+              color:          RISK_COLORS[data.risk_state?.toUpperCase() ?? ''] ?? 'var(--text-muted)',
+            }}>
+              Risk: {data.risk_state}
+              {data.risk_score != null && ` (${data.risk_score})`}
+            </div>
+          )}
+
+          {/* Organised field groups */}
+          <OrdrGroup title="Identity">
+            <Row label="Name"         value={data.device_name} />
+            <Row label="FQDN"         value={data.fqdn} />
+            <Row label="MAC"          value={data.mac} />
+            <Row label="Serial"       value={data.serial} />
+            <Row label="First seen"   value={data.first_seen} />
+            <Row label="Last seen"    value={data.last_seen} />
+            <Row label="Status"       value={data.conn_status} />
+          </OrdrGroup>
+
+          <OrdrGroup title="Classification">
+            <Row label="Type"         value={data.device_type} />
+            <Row label="Description"  value={data.device_descr} />
+            <Row label="Group"        value={data.group} />
+            <Row label="Profile"      value={data.profile} />
+            <Row label="Endpoint"     value={data.endpoint_type} />
+            <Row label="State"        value={data.classification_state} />
+            <Row label="Criticality"  value={data.criticality} />
+          </OrdrGroup>
+
+          <OrdrGroup title="Hardware / Software">
+            <Row label="Manufacturer" value={data.manufacturer} />
+            <Row label="Model"        value={data.model} />
+            <Row label="OS"           value={data.os_type} />
+            <Row label="SW Version"   value={data.sw_version} />
+          </OrdrGroup>
+
+          <OrdrGroup title="Network">
+            <Row label="IP"           value={data.ip} />
+            <Row label="Subnet"       value={data.subnet} />
+            <Row label="VLAN"         value={data.vlan != null ? `${data.vlan}${data.vlan_name ? ` (${data.vlan_name})` : ''}` : undefined} />
+            <Row label="Access"       value={data.access_type} />
+            <Row label="DHCP"         value={data.dhcp_enabled != null ? (data.dhcp_enabled ? 'Enabled' : 'Disabled') : undefined} />
+            <Row label="DHCP name"    value={data.dhcp_hostname} />
+          </OrdrGroup>
+
+          <OrdrGroup title="Connected via">
+            <Row label="Switch"       value={data.nw_equip_hostname} />
+            <Row label="Interface"    value={data.nw_equip_interface} />
+            <Row label="Scrape IP"    value={data.nw_equip_scrape_ip} />
+            <Row label="Sensor"       value={data.sensor_name} />
+            <Row label="Sensor IP"    value={data.sensor_ip} />
+          </OrdrGroup>
+
+          <OrdrGroup title="Risk &amp; Security">
+            <Row label="Risk state"   value={data.risk_state} />
+            <Row label="Risk score"   value={data.risk_score != null ? String(data.risk_score) : undefined}
+                 warn={(data.risk_score ?? 0) > 5} />
+            <Row label="Known vulns"  value={data.known_vuln_risk}
+                 warn={data.known_vuln_risk === 'HIGH'} />
+            <Row label="PHI"          value={data.has_phi ? 'Yes' : data.has_phi === false ? 'No' : undefined}
+                 warn={!!data.has_phi} />
+            <Row label="Alarms"       value={data.alarm_count != null ? String(data.alarm_count) : undefined}
+                 warn={(data.alarm_count ?? 0) > 0} />
+            <Row label="Ext flows"    value={data.has_external_flows} />
+          </OrdrGroup>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrdrGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  const kids = React.Children.toArray(children).filter(Boolean);
+  if (kids.length === 0) return null;
+  return (
+    <div style={{ marginBottom: '8px' }}>
+      <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.07em', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '3px' }}>
+        {title}
+      </div>
+      <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Node detail
 // ---------------------------------------------------------------------------
 
 function NodeDetail({ data }: { data: NodeData }) {
-  const members = Array.isArray(data.stack_members)
-    ? (data.stack_members as StackMember[])
-    : [];
+  const members     = Array.isArray(data.stack_members) ? (data.stack_members as StackMember[]) : [];
+  const deviceIpMap = useTraceStore((s) => s.graph?.metadata?.device_ip_map ?? {});
+  // Use the node's direct IP first (src/dst endpoints), then the SSH management IP
+  const queryIp     = (data.ip as string | undefined) || deviceIpMap[data.label] || null;
 
   return (
     <>
@@ -269,6 +440,9 @@ function NodeDetail({ data }: { data: NodeData }) {
           View device in NetBox
         </a>
       )}
+
+      {/* ORDR device intelligence — shown when we have an IP to query */}
+      {queryIp && <OrdrPanel ip={queryIp} />}
     </>
   );
 }

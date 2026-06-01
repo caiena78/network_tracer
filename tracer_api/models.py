@@ -171,6 +171,52 @@ class HistoryListResponse(BaseModel):
 # On-demand interface detail
 # ---------------------------------------------------------------------------
 
+class OrdrDeviceData(BaseModel):
+    """Device intelligence record returned by the ORDR API."""
+    # All fields are optional because ORDR may return a subset depending on
+    # what it has discovered about the device.
+    ip:                   Optional[str]   = Field(None, alias="IpAddress")
+    mac:                  Optional[str]   = Field(None, alias="MacAddress")
+    device_name:          Optional[str]   = Field(None, alias="deviceName")
+    device_type:          Optional[str]   = Field(None, alias="DeviceType")
+    device_descr:         Optional[str]   = Field(None, alias="DeviceDescr")
+    group:                Optional[str]   = Field(None, alias="Group")
+    manufacturer:         Optional[str]   = Field(None, alias="LongMfgName")
+    model:                Optional[str]   = Field(None, alias="ModelNameNo")
+    os_type:              Optional[str]   = Field(None, alias="OsType")
+    sw_version:           Optional[str]   = Field(None, alias="SwVersion")
+    profile:              Optional[str]   = Field(None, alias="Profile")
+    serial:               Optional[str]   = Field(None, alias="SerialNo")
+    subnet:               Optional[str]   = Field(None, alias="Subnet")
+    vlan:                 Optional[int]   = Field(None, alias="Vlan")
+    vlan_name:            Optional[str]   = Field(None, alias="vlanName")
+    risk_state:           Optional[str]   = Field(None, alias="RiskState")
+    risk_score:           Optional[float] = Field(None, alias="riskScore")
+    known_vuln_risk:      Optional[str]   = Field(None, alias="knownVulnRiskState")
+    conn_status:          Optional[str]   = Field(None, alias="connStatus")
+    endpoint_type:        Optional[str]   = Field(None, alias="endpointType")
+    criticality:          Optional[str]   = Field(None, alias="criticality")
+    classification_state: Optional[str]   = Field(None, alias="classificationState")
+    access_type:          Optional[str]   = Field(None, alias="accessType")
+    fqdn:                 Optional[str]   = Field(None, alias="fqdn")
+    dhcp_enabled:         Optional[bool]  = Field(None, alias="dhcpEnabled")
+    dhcp_hostname:        Optional[str]   = Field(None, alias="dhcpHostname")
+    first_seen:           Optional[str]   = Field(None, alias="firstSeen")
+    last_seen:            Optional[str]   = Field(None, alias="lastSeen")
+    nw_equip_hostname:    Optional[str]   = Field(None, alias="nwEquipHostname")
+    nw_equip_interface:   Optional[str]   = Field(None, alias="nwEquipInterface")
+    nw_equip_scrape_ip:   Optional[str]   = Field(None, alias="nwEquipScrapeIp")
+    alarm_count:          Optional[int]   = Field(None, alias="alarmCount")
+    has_phi:              Optional[bool]  = Field(None, alias="hasPhi")
+    has_external_flows:   Optional[str]   = Field(None, alias="hasExternalFlows")
+    sensor_name:          Optional[str]   = Field(None, alias="sensorName")
+    sensor_ip:            Optional[str]   = Field(None, alias="sensorIp")
+    # Pass through any extra fields ORDR may return
+    extra:                Optional[Dict[str, Any]] = None
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+
 class InterfaceDetailRequest(BaseModel):
     """Body for POST /api/v1/interfaces/detail."""
     device_ip: str  = Field(..., description="SSH management IP of the device")

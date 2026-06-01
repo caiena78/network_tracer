@@ -74,6 +74,17 @@ class Settings(BaseSettings):
     # How long to keep completed/failed task records in memory before eviction.
     task_ttl_seconds: int = 3600
 
+    # ── ORDR device intelligence ───────────────────────────────────────────────
+    # Credentials are loaded from Vault when vault_addr is configured.
+    # The Vault secret at ordr_vault_path must contain:
+    #   ORDR_URL, ORDR_TENANTGUID, ORDR_USER, ORDR_PASSWORD
+    # Direct env-var overrides (used when Vault is not configured):
+    ordr_vault_path: str = "ordr/credentials"   # KV v2 path for ORDR secrets
+    ordr_url:         str = ""
+    ordr_tenant_guid: str = ""
+    ordr_user:        str = ""
+    ordr_password:    str = ""
+
     # ── History persistence ─────────────────────────────────────────────────────
     # Path to the SQLite database file for trace history.
     # Relative paths are resolved from the process working directory.
