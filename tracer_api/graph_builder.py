@@ -325,10 +325,16 @@ def build_graph(
                 continue  # source→hop0 edge already created above
 
             prev_hop   = hops[i - 1]
-            prev_dev   = prev_hop.get("device")    or f"unknown_{i-1}"
-            prev_iface = prev_hop.get("interface") or ""
-            prev_layer = prev_hop.get("layer")     or "L2"
-            prev_det   = prev_hop.get("details")   or {}
+            prev_dev   = prev_hop.get("device") or f"unknown_{i-1}"
+            prev_layer = prev_hop.get("layer")  or "L2"
+            prev_det   = prev_hop.get("details") or {}
+
+            # For L2 intermediate switches the correct interface to show on the
+            # edge toward the NEXT device is the EGRESS (uplink) port, stored in
+            # details["egress_interface"] by build_path_dict / _flat_l2_hops.
+            # For L3 hops and hops without an egress_interface, fall back to the
+            # interface field (which is the ingress/SVI and is already correct).
+            prev_iface = prev_det.get("egress_interface") or prev_hop.get("interface") or ""
 
             src_node   = f"device::{prev_dev}"
             tgt_node   = f"device::{device}"
