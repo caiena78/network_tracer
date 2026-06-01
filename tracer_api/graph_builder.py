@@ -51,11 +51,10 @@ _SWITCH_PREFIXES = re.compile(
 def _infer_node_type(layer: str, interface: str, hop_index: int, total_hops: int) -> str:
     """
     Infer device node type.
-    hop_index == 0 is NO LONGER typed as "src" — a dedicated source-endpoint
-    node is created separately in build_graph() before the hop loop.
+    hop_index == 0 is NO LONGER typed as "src"  — dedicated source endpoint node.
+    hop_index == total_hops-1 is NO LONGER "dst" — dedicated destination endpoint node.
+    Both endpoint nodes are created separately in build_graph().
     """
-    if hop_index == total_hops - 1:
-        return "dst"
     if layer == "L3":
         return "router"
     if layer == "L2":
@@ -145,6 +144,18 @@ def build_graph(
             "node_type": "src",
             "layer":     "L2",
             "ip":        src_ip,
+        }})
+
+    # ── Dedicated destination-endpoint node (one per graph, not per hop) ─────
+    dst_host_id = f"host::{dst_ip}"
+    if dst_ip and dst_host_id not in node_ids:
+        node_ids.add(dst_host_id)
+        elements.append({"data": {
+            "id":        dst_host_id,
+            "label":     dst_ip,
+            "node_type": "dst",
+            "layer":     "L2",
+            "ip":        dst_ip,
         }})
 
     # ── Node-deduplication helper ─────────────────────────────────────────────
@@ -298,6 +309,33 @@ def build_graph(
                     dst_iface   = interface  or None,
                     src_details = prev_det,
                     dst_details = details,
+                )})
+
+        # ── Edge: last hop → destination endpoint ────────────────────────────
+        # Use the very last hop in the path to represent the port on the final
+        # device that faces the destination host.
+        if hops and dst_ip:
+            last_hop     = hops[-1]
+            last_dev     = last_hop.get("device") or f"unknown_{n_hops-1}"
+            last_iface   = last_hop.get("interface") or ""
+            last_details = last_hop.get("details") or {}
+            last_layer   = last_hop.get("layer") or "L2"
+
+            dst_edge_id = f"edge::dst::{last_dev}::{last_iface}::{dst_ip}"
+            path_edges.append(dst_edge_id)
+            if dst_edge_id not in edge_ids:
+                edge_ids.add(dst_edge_id)
+                elements.append({"data": _make_edge(
+                    edge_id     = dst_edge_id,
+                    src_node    = f"device::{last_dev}",
+                    tgt_node    = dst_host_id,
+                    edge_layer  = last_layer,
+                    src_dev     = last_dev,
+                    dst_dev     = dst_ip,
+                    src_iface   = last_iface or None,
+                    dst_iface   = None,
+                    src_details = last_details,
+                    dst_details = {},
                 )})
 
         paths_out.append({
