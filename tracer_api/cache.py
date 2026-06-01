@@ -149,8 +149,27 @@ class TraceResultCache:
         dst_ip: str,
         netbox_url: str,
     ) -> None:
-        """Remove the cached result for a specific (src, dst) pair."""
+        """Remove the cached result for an exact (src, dst, netbox_url) key."""
         self._inner.invalidate(self._key(src_ip, dst_ip, netbox_url))
+
+    def invalidate_src_dst(self, src_ip: str, dst_ip: str) -> int:
+        """Remove ALL cached entries for (src_ip, dst_ip) regardless of netbox_url.
+
+        Use this for the "re-run" workflow where the netbox_url that was used
+        when caching may differ from settings.netbox_url (e.g. when Vault provides
+        the URL rather than an env var).  Returns the number of entries removed.
+        """
+        removed = 0
+        with self._inner._lock:
+            stale = [
+                k for k in self._inner._data
+                if isinstance(k, tuple) and len(k) >= 2
+                and k[0] == src_ip and k[1] == dst_ip
+            ]
+            for k in stale:
+                del self._inner._data[k]
+                removed += 1
+        return removed
 
     def clear_all(self) -> int:
         """Remove every cached result. Returns the number of entries cleared."""

@@ -565,9 +565,12 @@ async def clear_cache(
     rc = get_result_cache()
 
     if src_ip and dst_ip:
-        rc.invalidate(src_ip, dst_ip, settings.netbox_url)
-        log.info("Cache invalidated for %s → %s", src_ip, dst_ip)
-        return {"cleared": 1, "src_ip": src_ip, "dst_ip": dst_ip}
+        # Use invalidate_src_dst so the correct entry is removed regardless of
+        # which netbox_url was in effect when the result was cached (e.g. Vault
+        # provides the URL at trace time, not from settings.netbox_url).
+        removed = rc.invalidate_src_dst(src_ip, dst_ip)
+        log.info("Cache invalidated for %s → %s (%d entries)", src_ip, dst_ip, removed)
+        return {"cleared": removed, "src_ip": src_ip, "dst_ip": dst_ip}
 
     cleared = rc.clear_all()
     log.info("Full cache cleared — %d entries removed", cleared)
