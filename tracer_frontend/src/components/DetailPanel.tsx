@@ -377,8 +377,9 @@ function OrdrGroup({ title, children }: { title: string; children: React.ReactNo
 function NodeDetail({ data }: { data: NodeData }) {
   const members     = Array.isArray(data.stack_members) ? (data.stack_members as StackMember[]) : [];
   const deviceIpMap = useTraceStore((s) => s.graph?.metadata?.device_ip_map ?? {});
-  // Use the node's direct IP first (src/dst endpoints), then the SSH management IP
-  const queryIp     = (data.ip as string | undefined) || deviceIpMap[data.label] || null;
+  // Use the node's direct IP first (src/dst endpoints), then the management IP from the device map
+  const displayIp   = (data.ip as string | undefined) || deviceIpMap[data.label] || null;
+  const queryIp     = displayIp;
 
   return (
     <>
@@ -386,9 +387,9 @@ function NodeDetail({ data }: { data: NodeData }) {
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
           <tbody>
             <Row label="Name"        value={data.label} />
+            <Row label="IP"          value={displayIp ?? undefined} />
             <Row label="Type"        value={data.node_type} />
             <Row label="Layer"       value={data.layer} />
-            <Row label="IP"          value={data.ip} />
             <Row label="Description" value={data.description} />
             <Row label="State"       value={data.state} />
             <Row label="Speed"       value={data.speed} />
