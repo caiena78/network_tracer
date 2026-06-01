@@ -597,7 +597,10 @@ def run_trace_background(
         enrichment_map: dict = {}   # (device, interface) → detail dict
 
         with _capture_prints(progress):
-            for event in nt.iter_interface_enrichment(flat_topology, creds):
+            for event in nt.iter_interface_enrichment(
+                flat_topology, creds,
+                max_workers=settings.max_enrichment_workers,
+            ):
                 # Stream the event to all SSE subscribers in real-time
                 task.broadcast_enrichment(event)
                 # Accumulate for merging into the final cached result

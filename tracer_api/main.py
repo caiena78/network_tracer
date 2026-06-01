@@ -36,6 +36,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 # ---------------------------------------------------------------------------
@@ -78,10 +79,12 @@ logging.basicConfig(
 log = logging.getLogger("tracer_api")
 
 # ---------------------------------------------------------------------------
-# Thread pool — SSH is blocking; each trace occupies one worker thread
+# Thread pool — SSH is blocking; each trace occupies one worker thread.
+# We allocate extra headroom beyond max_concurrent_traces for the on-demand
+# interface-detail endpoint and other short blocking calls.
 # ---------------------------------------------------------------------------
 _thread_pool = ThreadPoolExecutor(
-    max_workers=settings.max_concurrent_traces,
+    max_workers=settings.max_concurrent_traces + 20,
     thread_name_prefix="tracer-",
 )
 
@@ -100,6 +103,9 @@ app = FastAPI(
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
 )
+
+# Gzip — compress responses ≥ 1 KB (graphs and history lists can be 100–500 KB)
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # CORS
 app.add_middleware(

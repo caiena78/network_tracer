@@ -54,9 +54,15 @@ class Settings(BaseSettings):
     # Hard wall-clock timeout for a single trace job (seconds).
     trace_timeout_seconds: int = 900
     # Maximum number of trace jobs that may run concurrently.
-    max_concurrent_traces: int = 10
+    # Each trace occupies one OS thread (SSH is blocking I/O).  Set this to the
+    # number of simultaneous traces you expect; the thread pool grows to match.
+    max_concurrent_traces: int = 50
     # ThreadPoolExecutor workers used to explore parallel ECMP L3 branches.
-    max_l3_branch_workers: int = 6
+    max_l3_branch_workers: int = 12
+    # ThreadPoolExecutor workers used for parallel interface enrichment.
+    # Each worker holds one SSH session; set to the average number of devices
+    # per trace path so all devices are enriched simultaneously.
+    max_enrichment_workers: int = 10
 
     # ── Cache TTLs (seconds, 0 = disabled) ─────────────────────────────────────
     # How long to cache NetBox prefix-list results (rarely change mid-trace).

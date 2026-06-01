@@ -51,53 +51,69 @@ function InnerCanvas({ graph, containerRef }: InnerCanvasProps) {
   const pendingDeviceUpdates    = useTraceStore((s) => s.pendingDeviceUpdates);
   const clearPendingDeviceUpdates = useTraceStore((s) => s.clearPendingDeviceUpdates);
 
-  // Apply streaming interface updates to edge data without remounting the canvas
+  // Apply streaming interface updates in one batched pass per animation frame.
+  // SSE events arrive faster than React renders; accumulating them and flushing
+  // once per rAF prevents dozens of sequential re-renders during enrichment.
   useEffect(() => {
     if (pendingEnrichments.length === 0) return;
-    setEdges((prev) =>
-      prev.map((edge) => {
-        const ed = edge.data as EdgeData | undefined;
-        if (!ed) return edge;
-        const match = pendingEnrichments.find(
-          (u) =>
-            (ed.src_device === u.device && ed.src_interface === u.interface) ||
-            (ed.dst_device === u.device && ed.dst_interface === u.interface),
-        );
-        if (!match) return edge;
-        const merged: EdgeData = { ...ed, ...(match.data as Partial<EdgeData>) };
-        const color = edgeColor(merged.layer ?? 'L2');
-        return {
-          ...edge,
-          data:      merged,
-          style:     { stroke: color, strokeWidth: 2 },
-          markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
-        };
-      }),
-    );
-    clearPendingEnrichments();
+    const snapshot = pendingEnrichments;           // capture current batch
+    const id = requestAnimationFrame(() => {
+      setEdges((prev) =>
+        prev.map((edge) => {
+          const ed = edge.data as EdgeData | undefined;
+          if (!ed) return edge;
+          // Apply ALL matching updates from this batch in one pass
+          const updates = snapshot.filter(
+            (u) =>
+              (ed.src_device === u.device && ed.src_interface === u.interface) ||
+              (ed.dst_device === u.device && ed.dst_interface === u.interface),
+          );
+          if (updates.length === 0) return edge;
+          let merged: EdgeData = { ...ed };
+          for (const u of updates) {
+            merged = { ...merged, ...(u.data as Partial<EdgeData>) };
+          }
+          const color = edgeColor(merged.layer ?? 'L2');
+          return {
+            ...edge,
+            data:      merged,
+            style:     { stroke: color, strokeWidth: 2 },
+            markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
+          };
+        }),
+      );
+      clearPendingEnrichments();
+    });
+    return () => cancelAnimationFrame(id);
   }, [pendingEnrichments, setEdges, clearPendingEnrichments]);
 
-  // Apply streaming device updates (os_version, uptime) to nodes
+  // Apply streaming device updates in one batched rAF pass
   useEffect(() => {
     if (pendingDeviceUpdates.length === 0) return;
-    setNodes((prev) =>
-      prev.map((node) => {
-        const nd = node.data as NodeData | undefined;
-        if (!nd) return node;
-        const update = pendingDeviceUpdates.find((u) => u.device === nd.label);
-        if (!update) return node;
-        return {
-          ...node,
-          data: {
-            ...nd,
-            os_version:    update.data.os_version    ?? nd.os_version,
-            uptime:        update.data.uptime        ?? nd.uptime,
-            stack_members: update.data.stack_members ?? nd.stack_members,
-          },
-        };
-      }),
-    );
-    clearPendingDeviceUpdates();
+    const snapshot = pendingDeviceUpdates;
+    const id = requestAnimationFrame(() => {
+      setNodes((prev) =>
+        prev.map((node) => {
+          const nd = node.data as NodeData | undefined;
+          if (!nd) return node;
+          // A device name might appear multiple times (ECMP); find the last update
+          const updates = snapshot.filter((u) => u.device === nd.label);
+          if (updates.length === 0) return node;
+          const last = updates[updates.length - 1];
+          return {
+            ...node,
+            data: {
+              ...nd,
+              os_version:    last.data.os_version    ?? nd.os_version,
+              uptime:        last.data.uptime        ?? nd.uptime,
+              stack_members: last.data.stack_members ?? nd.stack_members,
+            },
+          };
+        }),
+      );
+      clearPendingDeviceUpdates();
+    });
+    return () => cancelAnimationFrame(id);
   }, [pendingDeviceUpdates, setNodes, clearPendingDeviceUpdates]);
 
   const proOptions = useMemo(() => ({ hideAttribution: true }), []);

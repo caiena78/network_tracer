@@ -34,6 +34,11 @@ psutil>=5.9.0
 # ── HashiCorp Vault (required when TRACER_VAULT_ADDR is configured) ───────────
 hvac>=2.1.0
 
+# ── Production server ─────────────────────────────────────────────────────────
+# gunicorn wraps uvicorn for production deployments.
+# Run with:  gunicorn -c gunicorn.conf.py tracer_api.main:app
+gunicorn>=22.0.0
+
 # ── Optional: Genie / pyATS structured CLI parsing ────────────────────────────
 # Uncomment ONE of the following to enable structured CLI output:
 # pyats[full]>=23.0

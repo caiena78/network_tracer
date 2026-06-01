@@ -2742,106 +2742,113 @@ def run_l2_trace(
 
 
 def iter_interface_enrichment(
-    flat_paths: List[Dict],
-    creds:      Dict[str, str],
+    flat_paths:  List[Dict],
+    creds:       Dict[str, str],
+    max_workers: int = 10,
 ) -> "Iterator[Dict]":
-    """Generator: yields interface detail events for every hop in *flat_paths*.
+    """Generator that enriches all devices in *flat_paths* **in parallel**.
 
-    Designed to run AFTER ``build_flat_paths()`` so the graph is already
-    rendered.  For each unique (device_ip, interface) pair we SSH to the
-    device once (reusing the session for all interfaces on that device), then
-    yield an event per interface.
+    Each device gets its own SSH session in a ThreadPoolExecutor worker.
+    Results are yielded as soon as any device finishes — fastest devices appear
+    first in the SSE stream so the frontend fills in quickly.
 
     Yields
     ------
-    ``{"type": "interface_update",  "device": str, "interface": str, "data": dict}``
-        Full ``show interface`` counter dict for that interface.
-
-    ``{"type": "portchannel_update", "device": str, "interface": str, "members": list}``
-        Physical member interfaces when the interface is a port-channel.
+    ``{"type": "device_update",     "device": str, "data": {...}}``
+    ``{"type": "interface_update",  "device": str, "interface": str, "data": {...}}``
+    ``{"type": "portchannel_update","device": str, "interface": str, "members": [...]}``
     """
-    from typing import Iterator  # local import to avoid forward-reference issues
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from typing import Iterator  # local import
 
-    # ── Build: device_ip → (device_name, ordered list of interfaces) ─────────
+    # ── Build device_ip → (device_name, [interfaces]) ─────────────────────────
     device_map: Dict[str, Tuple[str, List[str]]] = {}
-
     for path in flat_paths:
         for hop in (path.get("path") or []):
-            d_ip   = hop.get("device_ip")
+            d_ip  = hop.get("device_ip")
             d_name = hop.get("device", "unknown")
-            iface  = hop.get("interface", "")
-
+            iface = hop.get("interface", "")
             if not d_ip or not iface or iface in ("—", ""):
                 continue
-
             if d_ip not in device_map:
                 device_map[d_ip] = (d_name, [])
             _, ifaces = device_map[d_ip]
             if iface not in ifaces:
                 ifaces.append(iface)
-
-            # Also enrich the egress_interface when present in details
             eg = (hop.get("details") or {}).get("egress_interface")
             if eg and eg not in ifaces:
                 ifaces.append(eg)
 
-    # ── SSH to each device once; collect version + all interfaces ────────────
-    for d_ip, (d_name, interfaces) in device_map.items():
-        print(
-            f"[ENRICH] {d_name} ({d_ip}) — "
-            f"version + {len(interfaces)} interface(s)"
-        )
+    if not device_map:
+        return
+
+    # ── Worker: SSH to one device, collect everything, return events list ─────
+    def _enrich_device(d_ip: str, d_name: str, interfaces: List[str]) -> List[Dict]:
+        events: List[Dict] = []
+        print(f"[ENRICH] {d_name} ({d_ip}) — version + {len(interfaces)} interface(s)")
         try:
             client = _open_device_client(d_ip, "ios", creds)
         except GatewayConnectionError as exc:
             print(f"[ENRICH] Cannot connect to {d_name} ({d_ip}): {exc}")
-            continue
+            return events
 
         try:
-            # ── show version (OS version + uptime) ───────────────────────────
+            # show version
             ver = get_device_version(client, "ios")
-            if ver.get("os_version") or ver.get("uptime"):
+            if ver.get("os_version") or ver.get("uptime") or ver.get("stack_members"):
                 print(
                     f"[ENRICH] {d_name} — "
-                    f"version={ver.get('os_version', '?')}  "
-                    f"uptime={ver.get('uptime', '?')}"
+                    f"version={ver.get('os_version','?')}  "
+                    f"uptime={ver.get('uptime','?')}"
                 )
-                yield {
-                    "type":   "device_update",
-                    "device": d_name,
-                    "data":   ver,
-                }
+                events.append({"type": "device_update", "device": d_name, "data": ver})
 
-            # ── show interface for each collected interface ───────────────────
+            # show interface + port-channel members
             for iface in interfaces:
                 detail = get_interface_detail(client, "ios", iface)
                 print(
                     f"[ENRICH] {d_name} {iface} — "
-                    f"state={detail.get('state', '?')}  "
+                    f"state={detail.get('state','?')}  "
                     f"crc={detail.get('crc') or detail.get('rx_crc', 0)}"
                 )
-                yield {
+                events.append({
                     "type":      "interface_update",
                     "device":    d_name,
                     "interface": iface,
                     "data":      detail,
-                }
-
+                })
                 if is_portchannel(iface):
                     members = get_portchannel_members(client, "ios", iface)
                     if members:
                         print(f"[ENRICH] {d_name} {iface} — members: {', '.join(members)}")
-                        yield {
+                        events.append({
                             "type":      "portchannel_update",
                             "device":    d_name,
                             "interface": iface,
                             "members":   members,
-                        }
+                        })
         finally:
             try:
                 client._cli_disconnect()
             except Exception:
                 pass
+
+        return events
+
+    # ── Fan out: all devices in parallel; yield as each one finishes ──────────
+    n_workers = min(max_workers, len(device_map))
+    with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="enrich-") as pool:
+        future_map = {
+            pool.submit(_enrich_device, d_ip, d_name, ifaces): (d_ip, d_name)
+            for d_ip, (d_name, ifaces) in device_map.items()
+        }
+        for future in as_completed(future_map):
+            d_ip, d_name = future_map[future]
+            try:
+                for event in future.result():
+                    yield event
+            except Exception as exc:
+                print(f"[ENRICH] Unexpected error from {d_name} ({d_ip}): {exc}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
