@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import * as api from '../api/client';
-import type { GraphResponse, InterfaceUpdate, PortchannelUpdate, SelectedElement } from '../types/trace';
+import type { DeviceUpdate, GraphResponse, InterfaceUpdate, PortchannelUpdate, SelectedElement } from '../types/trace';
 
 const BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
@@ -27,9 +27,10 @@ interface TraceState {
   graph:        GraphResponse | null;
   graphVersion: number;
 
-  // Streaming enrichment — pending interface updates not yet applied to edges
+  // Streaming enrichment — pending updates not yet applied to the graph
   pendingEnrichments:   InterfaceUpdate[];
   pendingPortchannels:  PortchannelUpdate[];
+  pendingDeviceUpdates: DeviceUpdate[];
 
   // Selection (detail panel)
   selectedElement: SelectedElement | null;
@@ -44,8 +45,9 @@ interface TraceState {
   cancelTrace:            () => void;
   clearTrace:             () => void;
   loadGraph:              (graph: GraphResponse) => void;
-  setSelectedElement:     (el: SelectedElement | null) => void;
-  clearPendingEnrichments:() => void;
+  setSelectedElement:      (el: SelectedElement | null) => void;
+  clearPendingEnrichments: () => void;
+  clearPendingDeviceUpdates: () => void;
 }
 
 export const useTraceStore = create<TraceState>((set, get) => ({
@@ -59,24 +61,27 @@ export const useTraceStore = create<TraceState>((set, get) => ({
   graphVersion:           0,
   pendingEnrichments:     [],
   pendingPortchannels:    [],
+  pendingDeviceUpdates:   [],
   selectedElement:        null,
   _es:                    null,
 
   setSrcIp: (ip) => set({ srcIp: ip }),
   setDstIp: (ip) => set({ dstIp: ip }),
   setSelectedElement: (el) => set({ selectedElement: el }),
-  clearPendingEnrichments: () => set({ pendingEnrichments: [], pendingPortchannels: [] }),
+  clearPendingEnrichments:    () => set({ pendingEnrichments: [], pendingPortchannels: [] }),
+  clearPendingDeviceUpdates:  () => set({ pendingDeviceUpdates: [] }),
 
   loadGraph: (graph) =>
     set((s) => ({
       graph,
-      graphVersion:    s.graphVersion + 1,
-      phase:           'done',
-      progress:        [],
-      error:           null,
-      traceId:         null,
+      graphVersion:        s.graphVersion + 1,
+      phase:               'done',
+      progress:            [],
+      error:               null,
+      traceId:             null,
       pendingEnrichments:  [],
       pendingPortchannels: [],
+      pendingDeviceUpdates: [],
     })),
 
   clearTrace: () => {
@@ -184,6 +189,18 @@ export const useTraceStore = create<TraceState>((set, get) => ({
             pendingPortchannels: [
               ...s.pendingPortchannels,
               { device, interface: iface, members },
+            ],
+          }));
+          return;
+        }
+
+        if (type === 'device_update') {
+          const device = msg.device as string;
+          const data   = msg.data   as { os_version?: string; uptime?: string };
+          set((s) => ({
+            pendingDeviceUpdates: [
+              ...s.pendingDeviceUpdates,
+              { device, data },
             ],
           }));
           return;

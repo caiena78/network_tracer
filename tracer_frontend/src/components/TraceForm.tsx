@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, X, RefreshCw, RotateCcw, Zap } from 'lucide-react';
+import { Play, X, RefreshCw, RotateCcw } from 'lucide-react';
 import { useTraceStore } from '../store/traceStore';
 import { clearTraceCache } from '../api/client';
 
@@ -168,14 +168,16 @@ export default function TraceForm() {
         <div style={{ display: 'flex', gap: '8px' }}>
           {!isRunning ? (
             <button
-              type="submit"
+              type={isDone ? 'button' : 'submit'}
+              onClick={isDone ? handleClearAndRerun : undefined}
+              disabled={clearing}
               className="btn btn-primary"
               style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
             >
               {isError ? (
                 <><RefreshCw size={14} />Run Again</>
               ) : isDone ? (
-                <><RefreshCw size={14} />Re-run Trace</>
+                <><RefreshCw size={14} />{clearing ? 'Clearing cache…' : 'Re-run Trace'}</>
               ) : (
                 <><Play size={14} />Run Trace</>
               )}
@@ -189,20 +191,6 @@ export default function TraceForm() {
             >
               <X size={14} />
               Cancel
-            </button>
-          )}
-
-          {/* Clear cache + re-run — only shown when a result is loaded */}
-          {isDone && !isRunning && (
-            <button
-              type="button"
-              onClick={handleClearAndRerun}
-              disabled={clearing}
-              className="btn btn-ghost"
-              title="Clear cached result and run a completely fresh trace"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 10px', flexShrink: 0 }}
-            >
-              <Zap size={14} />
             </button>
           )}
 

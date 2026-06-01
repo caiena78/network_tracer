@@ -24,31 +24,45 @@ function hasErrors(data: EdgeData): boolean {
   );
 }
 
-/** Speed string normalised to short form: "1000Mb/s" → "1G", "10000Mbps" → "10G" */
+/**
+ * Convert a raw speed string to a short display label, unit-aware.
+ *
+ * The backend may return strings like "1000Mb/s", "10 Gb/s", "100 Gb/s",
+ * "1000000 Kbps", etc.  We extract the numeric part AND the unit (G/M/K),
+ * normalise to Mbps, then format.
+ */
 function shortSpeed(speed: string | undefined): string {
   if (!speed) return '';
+  const lower = speed.toLowerCase();
   const n = parseFloat(speed.replace(/[^0-9.]/g, ''));
-  if (isNaN(n)) return speed;
-  if (n >= 100_000) return '100G';
-  if (n >= 40_000)  return '40G';
-  if (n >= 25_000)  return '25G';
-  if (n >= 10_000)  return '10G';
-  if (n >= 1_000)   return '1G';
-  if (n >= 100)     return '100M';
-  return `${n}M`;
+  if (isNaN(n) || n === 0) return speed;
+
+  // Normalise to Mbps
+  let mbps: number;
+  if (lower.includes('gb') || /\d\s*g[^i]/.test(lower)) {
+    mbps = n * 1_000;       // Gbps → Mbps
+  } else if (lower.includes('kb') || /\d\s*k/.test(lower)) {
+    mbps = n / 1_000;       // Kbps → Mbps
+  } else {
+    mbps = n;               // already Mbps
+  }
+
+  if (mbps >= 100_000) return '100G';
+  if (mbps >= 40_000)  return '40G';
+  if (mbps >= 25_000)  return '25G';
+  if (mbps >= 10_000)  return '10G';
+  if (mbps >= 1_000)   return '1G';
+  if (mbps >= 100)     return '100M';
+  if (mbps >= 10)      return '10M';
+  if (mbps >= 1)       return '1M';
+  return speed;
 }
 
 // ---------------------------------------------------------------------------
-// Compact always-visible edge label
+// Compact always-visible chip
 // ---------------------------------------------------------------------------
 
-interface EdgeChipProps {
-  data:     EdgeData;
-  color:    string;
-  selected: boolean;
-}
-
-function EdgeChip({ data, color, selected }: EdgeChipProps) {
+function EdgeChip({ data, color, selected }: { data: EdgeData; color: string; selected: boolean }) {
   const errors = hasErrors(data);
   const iface  = data.dst_interface || data.src_interface || '';
   const speed  = shortSpeed(data.speed as string | undefined);
@@ -56,28 +70,23 @@ function EdgeChip({ data, color, selected }: EdgeChipProps) {
   return (
     <div
       style={{
-        background:   'var(--bg-panel)',
-        border:       `1px solid ${selected ? color : 'var(--border-color)'}`,
-        borderRadius: '4px',
-        padding:      '2px 6px',
-        display:      'flex',
-        alignItems:   'center',
-        gap:          '4px',
-        fontSize:     '10px',
-        fontFamily:   'monospace',
-        color:        'var(--text-secondary)',
-        whiteSpace:   'nowrap',
-        boxShadow:    '0 1px 3px rgba(0,0,0,0.15)',
-        pointerEvents:'none',
-        userSelect:   'none',
+        background:    'var(--bg-panel)',
+        border:        `1px solid ${selected ? color : 'var(--border-color)'}`,
+        borderRadius:  '4px',
+        padding:       '2px 6px',
+        display:       'flex',
+        alignItems:    'center',
+        gap:           '4px',
+        fontSize:      '10px',
+        fontFamily:    'monospace',
+        color:         'var(--text-secondary)',
+        whiteSpace:    'nowrap',
+        boxShadow:     '0 1px 3px rgba(0,0,0,0.15)',
+        pointerEvents: 'none',
+        userSelect:    'none',
       }}
     >
-      {errors && (
-        <AlertTriangle
-          size={10}
-          style={{ color: 'var(--color-warning)', flexShrink: 0 }}
-        />
-      )}
+      {errors && <AlertTriangle size={10} style={{ color: 'var(--color-warning)', flexShrink: 0 }} />}
       <span style={{ color, fontWeight: 600 }}>{iface}</span>
       {speed && (
         <span style={{ color: 'var(--text-muted)', borderLeft: '1px solid var(--border-color)', paddingLeft: '4px' }}>
@@ -89,41 +98,90 @@ function EdgeChip({ data, color, selected }: EdgeChipProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Full hover tooltip
+// Tabbed tooltip
 // ---------------------------------------------------------------------------
 
+type TooltipTab = 'details' | 'raw';
+
 interface EdgeTooltipProps {
-  data: EdgeData;
-  x:    number;
-  y:    number;
+  data:          EdgeData;
+  x:             number;
+  y:             number;
+  onMouseEnter:  () => void;
+  onMouseLeave:  () => void;
 }
 
-function EdgeTooltip({ data, x, y }: EdgeTooltipProps) {
+function EdgeTooltip({ data, x, y, onMouseEnter, onMouseLeave }: EdgeTooltipProps) {
+  const [tab, setTab] = useState<TooltipTab>('details');
+  const hasRaw = !!(data.src_raw_output || data.dst_raw_output);
+
   return (
     <div
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       style={{
-        position:    'absolute',
-        left:        x,
-        top:         y,
-        transform:   'translate(-50%, -115%)',
-        zIndex:      9999,
-        background:  'var(--bg-tooltip)',
-        border:      '1px solid var(--border-color)',
-        borderRadius:'6px',
-        padding:     '10px 12px',
-        minWidth:    '240px',
-        maxWidth:    '340px',
-        boxShadow:   '0 4px 16px rgba(0,0,0,0.3)',
+        position:     'absolute',
+        left:          x,
+        top:           y,
+        transform:    'translate(-50%, -115%)',
+        zIndex:        9999,
+        background:   'var(--bg-tooltip)',
+        border:       '1px solid var(--border-color)',
+        borderRadius: '6px',
+        minWidth:     '260px',
+        maxWidth:     '400px',
+        boxShadow:    '0 4px 16px rgba(0,0,0,0.3)',
         pointerEvents:'auto',
-        fontSize:    '12px',
-        color:       'var(--text-primary)',
+        fontSize:     '12px',
+        color:        'var(--text-primary)',
+        overflow:     'hidden',
       }}
     >
-      <div style={{ fontWeight: 700, marginBottom: '8px', fontSize: '13px' }}>
-        Interface Details
+      {/* Tab bar */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-code)' }}>
+        {(['details', 'raw'] as TooltipTab[]).map((t) => {
+          if (t === 'raw' && !hasRaw) return null;
+          const label = t === 'details' ? 'Interface Details' : 'Show Interface';
+          const active = tab === t;
+          return (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              style={{
+                padding:     '6px 12px',
+                fontSize:    '11px',
+                fontWeight:   active ? 700 : 400,
+                color:        active ? 'var(--color-primary)' : 'var(--text-muted)',
+                background:  'transparent',
+                border:      'none',
+                borderBottom: active ? `2px solid var(--color-primary)` : '2px solid transparent',
+                cursor:      'pointer',
+                whiteSpace:  'nowrap',
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Source side */}
+      {/* Tab content */}
+      <div style={{ padding: '10px 12px' }}>
+        {tab === 'details' ? (
+          <DetailsTab data={data} />
+        ) : (
+          <RawTab data={data} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Details tab ─────────────────────────────────────────────────────────────
+
+function DetailsTab({ data }: { data: EdgeData }) {
+  return (
+    <>
       {(data.src_device || data.src_interface) && (
         <Section title="Source">
           <Row label="Device"    value={data.src_device} />
@@ -134,26 +192,23 @@ function EdgeTooltip({ data, x, y }: EdgeTooltipProps) {
         </Section>
       )}
 
-      {/* Destination / switch-port side */}
       <Section title="Switch Port">
         <Row label="Device"      value={data.dst_device} />
         <Row label="Interface"   value={data.dst_interface} />
         <Row label="Description" value={data.description as string | undefined} />
         <Row label="Speed"       value={data.speed as string | undefined} />
-        <Row label="Duplex"      value={data.duplex as string | undefined} />
+        <Row label="Duplex"      value={data.duplex  as string | undefined} />
         <Row label="VLAN"        value={data.vlan != null ? String(data.vlan) : undefined} />
-        <Row label="State"       value={data.state as string | undefined} />
+        <Row label="State"       value={data.state   as string | undefined} />
         {data.dst_interface_netbox_url && (
           <NBLink href={data.dst_interface_netbox_url} label="Open in NetBox" />
         )}
       </Section>
 
-      {/* Layer */}
-      <Section title="Link">
+      <Section title="Layer">
         <Row label="Layer" value={data.layer} />
       </Section>
 
-      {/* Error counters — show even if zero so operators can confirm clean */}
       <Section title="Interface Counters">
         <Row label="CRC errors"    value={data.crc          != null ? String(data.crc)          : undefined} warn={(data.crc          ?? 0) > 0} />
         <Row label="Input errors"  value={data.input_error  != null ? String(data.input_error)  : undefined} warn={(data.input_error  ?? 0) > 0} />
@@ -161,15 +216,79 @@ function EdgeTooltip({ data, x, y }: EdgeTooltipProps) {
         <Row label="Giants"        value={data.giants        != null ? String(data.giants)       : undefined} warn={(data.giants        ?? 0) > 0} />
         <Row label="Output errors" value={data.output_error != null ? String(data.output_error) : undefined} warn={(data.output_error ?? 0) > 0} />
         <Row label="Output drops"  value={data.total_output_drops != null ? String(data.total_output_drops) : undefined} warn={(data.total_output_drops ?? 0) > 0} />
-        <Row label="Unknown drops" value={(data as any).unknown_protocol_drops != null ? String((data as any).unknown_protocol_drops) : undefined} warn={((data as any).unknown_protocol_drops ?? 0) > 0} />
+        <Row label="Unknown drops" value={(data as Record<string, unknown>).unknown_protocol_drops != null ? String((data as Record<string, unknown>).unknown_protocol_drops) : undefined}
+             warn={((data as Record<string, unknown>).unknown_protocol_drops as number ?? 0) > 0} />
       </Section>
-    </div>
+    </>
   );
 }
 
+// ── Raw output tab ───────────────────────────────────────────────────────────
+
+function RawTab({ data }: { data: EdgeData }) {
+  const blocks: Array<{ label: string; text: string }> = [];
+  if (data.src_raw_output) {
+    blocks.push({
+      label: data.src_interface
+        ? `${data.src_device ?? ''} / ${data.src_interface}`
+        : (data.src_device ?? 'Source'),
+      text: data.src_raw_output,
+    });
+  }
+  if (data.dst_raw_output) {
+    blocks.push({
+      label: data.dst_interface
+        ? `${data.dst_device ?? ''} / ${data.dst_interface}`
+        : (data.dst_device ?? 'Destination'),
+      text: data.dst_raw_output,
+    });
+  }
+
+  if (blocks.length === 0) {
+    return (
+      <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+        No raw output yet — enrichment may still be running.
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {blocks.map((b, i) => (
+        <div key={i} style={{ marginBottom: i < blocks.length - 1 ? '12px' : 0 }}>
+          {blocks.length > 1 && (
+            <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '4px' }}>
+              {b.label}
+            </div>
+          )}
+          <pre
+            style={{
+              margin:      0,
+              padding:     '6px 8px',
+              background:  'var(--bg-code)',
+              borderRadius:'4px',
+              fontSize:    '10px',
+              fontFamily:  'monospace',
+              color:       'var(--text-primary)',
+              whiteSpace:  'pre',
+              overflowX:   'auto',
+              maxHeight:   '280px',
+              overflowY:   'auto',
+            }}
+          >
+            {b.text}
+          </pre>
+        </div>
+      ))}
+    </>
+  );
+}
+
+// ── Shared helpers ───────────────────────────────────────────────────────────
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  const hasContent = React.Children.toArray(children).some(Boolean);
-  if (!hasContent) return null;
+  const kids = React.Children.toArray(children).filter(Boolean);
+  if (kids.length === 0) return null;
   return (
     <div style={{ marginBottom: '8px' }}>
       <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.07em', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>
@@ -218,7 +337,10 @@ function ConnectionEdge({
   style,
   markerEnd,
 }: EdgeProps<EdgeData>) {
-  const [hovered, setHovered] = useState(false);
+  const [edgeHovered,    setEdgeHovered]    = useState(false);
+  const [tooltipHovered, setTooltipHovered] = useState(false);
+  const showTooltip = edgeHovered || tooltipHovered;
+
   const setSelectedElement = useTraceStore((s) => s.setSelectedElement);
 
   const edgeData = data ?? ({} as EdgeData);
@@ -234,9 +356,8 @@ function ConnectionEdge({
     setSelectedElement({ type: 'edge', data: edgeData });
   }, [edgeData, setSelectedElement]);
 
-  const active      = hovered || !!selected;
+  const active      = edgeHovered || !!selected;
   const strokeWidth = active ? 3 : (style?.strokeWidth as number) ?? 2;
-  // Edges with errors pulse a warning tint
   const strokeColor = active ? color : errors ? '#d97706' : color;
 
   return (
@@ -248,12 +369,12 @@ function ConnectionEdge({
         stroke="transparent"
         strokeWidth={20}
         style={{ cursor: 'pointer' }}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        onMouseEnter={() => setEdgeHovered(true)}
+        onMouseLeave={() => setEdgeHovered(false)}
         onClick={handleClick}
       />
 
-      {/* Visible edge line */}
+      {/* Visible edge */}
       <path
         id={id}
         className="react-flow__edge-path"
@@ -264,33 +385,33 @@ function ConnectionEdge({
         markerEnd={markerEnd}
         style={{
           ...style,
-          cursor: 'pointer',
-          filter: active ? `drop-shadow(0 0 4px ${color})` : undefined,
+          cursor:     'pointer',
+          filter:      active ? `drop-shadow(0 0 4px ${color})` : undefined,
           transition: 'stroke-width 0.1s, stroke 0.15s',
         }}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        onMouseEnter={() => setEdgeHovered(true)}
+        onMouseLeave={() => setEdgeHovered(false)}
         onClick={handleClick}
       />
 
-      {/* Always-visible compact label at edge midpoint */}
       <EdgeLabelRenderer>
+        {/* Always-visible compact chip */}
         <div
-          style={{
-            position:  'absolute',
-            left:      labelX,
-            top:       labelY,
-            transform: 'translate(-50%, -50%)',
-            pointerEvents: 'none',
-          }}
+          style={{ position: 'absolute', left: labelX, top: labelY, transform: 'translate(-50%, -50%)', pointerEvents: 'none' }}
           className="nodrag nopan"
         >
           <EdgeChip data={edgeData} color={color} selected={!!selected} />
         </div>
 
-        {/* Full hover tooltip */}
-        {hovered && (
-          <EdgeTooltip data={edgeData} x={labelX} y={labelY} />
+        {/* Tabbed hover tooltip — stays open when cursor moves into it */}
+        {showTooltip && (
+          <EdgeTooltip
+            data={edgeData}
+            x={labelX}
+            y={labelY}
+            onMouseEnter={() => setTooltipHovered(true)}
+            onMouseLeave={() => setTooltipHovered(false)}
+          />
         )}
       </EdgeLabelRenderer>
     </>

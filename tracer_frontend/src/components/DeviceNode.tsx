@@ -98,6 +98,16 @@ function TooltipCard({ data }: { data: NodeData }) {
           Status: {data.state}
         </div>
       )}
+      {data.os_version && (
+        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' }}>
+          Version: {String(data.os_version)}
+        </div>
+      )}
+      {data.uptime && (
+        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+          Uptime: {String(data.uptime)}
+        </div>
+      )}
       {data.netbox_url && (
         <a
           href={data.netbox_url}

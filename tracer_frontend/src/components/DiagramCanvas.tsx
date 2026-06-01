@@ -43,11 +43,13 @@ function InnerCanvas({ graph, containerRef }: InnerCanvasProps) {
     [], // intentional: init only on mount; key-based remount handles re-init
   );
 
-  const [nodes, , onNodesChange] = useNodesState(initNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState(initNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initEdges);
 
-  const pendingEnrichments   = useTraceStore((s) => s.pendingEnrichments);
+  const pendingEnrichments      = useTraceStore((s) => s.pendingEnrichments);
   const clearPendingEnrichments = useTraceStore((s) => s.clearPendingEnrichments);
+  const pendingDeviceUpdates    = useTraceStore((s) => s.pendingDeviceUpdates);
+  const clearPendingDeviceUpdates = useTraceStore((s) => s.clearPendingDeviceUpdates);
 
   // Apply streaming interface updates to edge data without remounting the canvas
   useEffect(() => {
@@ -74,6 +76,28 @@ function InnerCanvas({ graph, containerRef }: InnerCanvasProps) {
     );
     clearPendingEnrichments();
   }, [pendingEnrichments, setEdges, clearPendingEnrichments]);
+
+  // Apply streaming device updates (os_version, uptime) to nodes
+  useEffect(() => {
+    if (pendingDeviceUpdates.length === 0) return;
+    setNodes((prev) =>
+      prev.map((node) => {
+        const nd = node.data as NodeData | undefined;
+        if (!nd) return node;
+        const update = pendingDeviceUpdates.find((u) => u.device === nd.label);
+        if (!update) return node;
+        return {
+          ...node,
+          data: {
+            ...nd,
+            os_version: update.data.os_version ?? nd.os_version,
+            uptime:     update.data.uptime     ?? nd.uptime,
+          },
+        };
+      }),
+    );
+    clearPendingDeviceUpdates();
+  }, [pendingDeviceUpdates, setNodes, clearPendingDeviceUpdates]);
 
   const proOptions = useMemo(() => ({ hideAttribution: true }), []);
 

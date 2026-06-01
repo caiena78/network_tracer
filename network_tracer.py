@@ -1181,8 +1181,66 @@ def get_interface_detail(
     # ── Detect platform from output content ──────────────────────────────────
     if (re.search(r"\badmin\s+state\s+is\b", output, re.I)
             or "nxos" in device_type.lower()):
-        return _parse_interface_detail_nxos(output)
-    return _parse_interface_detail_ios(output)
+        result = _parse_interface_detail_nxos(output)
+    else:
+        result = _parse_interface_detail_ios(output)
+
+    # Always attach the full raw output so the frontend can show it verbatim.
+    result["raw_output"] = output.strip()
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 2 — show version helper
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def get_device_version(
+    client:      CiscoDeviceClient,
+    device_type: str,
+) -> Dict:
+    """Run ``show version`` and return parsed OS version + system uptime.
+
+    Returned keys (may be None when not parseable):
+      os_version   — short version string, e.g. ``"15.2(4)E9"`` or ``"9.3(11)"``
+      uptime       — human-readable uptime string from the device
+    """
+    result: Dict = {"os_version": None, "uptime": None}
+
+    try:
+        output = _send_cmd(client, "show version")
+    except Exception as exc:
+        log.debug("get_device_version: command failed: %s", exc)
+        return result
+
+    if not output:
+        return result
+
+    # ── Uptime ────────────────────────────────────────────────────────────────
+    # IOS/IOS-XE:  "<hostname> uptime is 28 weeks, 1 day, ..."
+    # NX-OS:       "Kernel uptime is 0 day(s), 3 hour(s), ..."
+    m = re.search(r"uptime is (.+)", output, re.IGNORECASE)
+    if m:
+        result["uptime"] = m.group(1).strip().rstrip(".")
+
+    # ── OS version ────────────────────────────────────────────────────────────
+    # IOS/IOS-XE:  'Cisco IOS Software, ..., Version 15.2(4)E9, ...'
+    # IOS-XE:      'Cisco IOS XE Software, Version 17.12.01, ...'
+    # NX-OS:       'NXOS: version 9.3(11)'  or  'system:    version 9.3(11)'
+    for pattern in (
+        r"(?:Cisco IOS(?: XE)? Software[^,]*,\s*Version)\s+(\S+)",
+        r"NXOS:\s*version\s+(\S+)",
+        r"system:\s+version\s+(\S+)",
+        r"Software\s+\((\S+)\),\s+Version\s+(\S+)",
+    ):
+        m = re.search(pattern, output, re.IGNORECASE)
+        if m:
+            # Some patterns have two groups; use the last non-None one.
+            groups = [g for g in m.groups() if g]
+            result["os_version"] = groups[-1].rstrip(",") if groups else None
+            break
+
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2550,13 +2608,11 @@ def iter_interface_enrichment(
             if eg and eg not in ifaces:
                 ifaces.append(eg)
 
-    # ── SSH to each device once; collect all its interfaces ───────────────────
+    # ── SSH to each device once; collect version + all interfaces ────────────
     for d_ip, (d_name, interfaces) in device_map.items():
-        if not interfaces:
-            continue
         print(
             f"[ENRICH] {d_name} ({d_ip}) — "
-            f"collecting {len(interfaces)} interface(s): {', '.join(interfaces)}"
+            f"version + {len(interfaces)} interface(s)"
         )
         try:
             client = _open_device_client(d_ip, "ios", creds)
@@ -2565,6 +2621,21 @@ def iter_interface_enrichment(
             continue
 
         try:
+            # ── show version (OS version + uptime) ───────────────────────────
+            ver = get_device_version(client, "ios")
+            if ver.get("os_version") or ver.get("uptime"):
+                print(
+                    f"[ENRICH] {d_name} — "
+                    f"version={ver.get('os_version', '?')}  "
+                    f"uptime={ver.get('uptime', '?')}"
+                )
+                yield {
+                    "type":   "device_update",
+                    "device": d_name,
+                    "data":   ver,
+                }
+
+            # ── show interface for each collected interface ───────────────────
             for iface in interfaces:
                 detail = get_interface_detail(client, "ios", iface)
                 print(

@@ -19,6 +19,14 @@ export interface InterfaceUpdate {
   data:      Record<string, unknown>;
 }
 
+export interface DeviceUpdate {
+  device: string;
+  data: {
+    os_version?: string | null;
+    uptime?:     string | null;
+  };
+}
+
 export interface PortchannelUpdate {
   device:    string;
   interface: string;
@@ -89,16 +97,18 @@ export interface FlatPath {
 // ---------------------------------------------------------------------------
 
 export interface NodeData {
-  id:          string;
-  label:       string;
-  node_type:   'switch' | 'router' | 'gateway' | 'src' | 'dst' | 'unknown';
-  layer:       'L2' | 'L3' | 'mixed';
-  ip?:         string;
-  state?:      string;
-  description?:string;
-  speed?:      string;
-  duplex?:     string;
-  netbox_url?: string;
+  id:           string;
+  label:        string;
+  node_type:    'switch' | 'router' | 'gateway' | 'src' | 'dst' | 'unknown';
+  layer:        'L2' | 'L3' | 'mixed';
+  ip?:          string;
+  state?:       string;
+  description?: string;
+  speed?:       string;
+  duplex?:      string;
+  netbox_url?:  string;
+  os_version?:  string;
+  uptime?:      string;
   [key: string]: unknown;
 }
 
@@ -122,6 +132,8 @@ export interface EdgeData {
   output_error?:               number;
   src_interface_netbox_url?:   string;
   dst_interface_netbox_url?:   string;
+  src_raw_output?:             string;
+  dst_raw_output?:             string;
   [key: string]: unknown;
 }
 

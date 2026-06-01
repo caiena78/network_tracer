@@ -223,6 +223,11 @@ def build_graph(
                 ed["src_interface_netbox_url"] = _interface_url(netbox_url, src_dev, src_iface)
             if dst_iface:
                 ed["dst_interface_netbox_url"] = _interface_url(netbox_url, dst_dev, dst_iface)
+        # Raw show-interface output — kept separate from numeric counter fields.
+        if src_details.get("raw_output"):
+            ed["src_raw_output"] = src_details["raw_output"]
+        if dst_details.get("raw_output"):
+            ed["dst_raw_output"] = dst_details["raw_output"]
         return ed
 
     # ── Per-path processing ───────────────────────────────────────────────────
