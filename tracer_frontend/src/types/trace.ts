@@ -146,6 +146,21 @@ export interface EdgeData {
   dst_interface_netbox_url?:   string;
   src_raw_output?:             string;
   dst_raw_output?:             string;
+  // L3 routing fields
+  prefix?:            string;
+  next_hop_ip?:       string;
+  egress_iface?:      string;
+  route_source?:      string;
+  route_tag?:         string;
+  route_age?:         string;
+  gateway_ip?:        string;
+  // BGP-specific
+  bgp_as_path?:       string;
+  bgp_community?:     string;
+  bgp_local_pref?:    number;
+  bgp_origin?:        string;
+  bgp_med?:           number;
+  bgp_weight?:        number;
   [key: string]: unknown;
 }
 

@@ -256,6 +256,37 @@ function EdgeTooltip({ data, x, y, deviceIpMap, onMouseEnter, onMouseLeave }: Ed
   );
 }
 
+// ── Routing section (shared between tooltip and sidebar) ────────────────────
+
+export function RoutingSection({ data }: { data: EdgeData }) {
+  if (data.layer !== 'L3' && data.layer !== 'mixed') return null;
+  if (!data.route_source && !data.prefix) return null;
+
+  const isBgp = (data.route_source ?? '').toLowerCase().includes('bgp');
+
+  return (
+    <Section title="Routing">
+      <Row label="Protocol"    value={data.route_source} />
+      <Row label="Prefix"      value={data.prefix} />
+      <Row label="Next hop"    value={data.next_hop_ip} />
+      <Row label="Egress"      value={data.egress_iface} />
+      <Row label="Route age"   value={data.route_age} />
+      {isBgp ? (
+        <>
+          <Row label="AS path"     value={data.bgp_as_path} />
+          <Row label="Community"   value={data.bgp_community} />
+          <Row label="Local pref"  value={data.bgp_local_pref != null ? String(data.bgp_local_pref) : undefined} />
+          <Row label="Origin"      value={data.bgp_origin} />
+          <Row label="MED"         value={data.bgp_med  != null ? String(data.bgp_med)  : undefined} />
+          <Row label="Weight"      value={data.bgp_weight != null ? String(data.bgp_weight) : undefined} />
+        </>
+      ) : (
+        <Row label="Tag" value={data.route_tag} />
+      )}
+    </Section>
+  );
+}
+
 // ── Details tab ─────────────────────────────────────────────────────────────
 
 function DetailsTab({ data }: { data: EdgeData }) {
@@ -283,6 +314,8 @@ function DetailsTab({ data }: { data: EdgeData }) {
           <NBLink href={data.dst_interface_netbox_url} label="Open in NetBox" />
         )}
       </Section>
+
+      <RoutingSection data={data} />
 
       <Section title="Layer">
         <Row label="Layer" value={data.layer} />

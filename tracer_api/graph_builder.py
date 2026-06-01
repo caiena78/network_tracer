@@ -82,6 +82,25 @@ def _interface_url(netbox_url: str, device: str, interface: str) -> str:
 # Interface detail fields copied onto edge data
 # ---------------------------------------------------------------------------
 
+# Routing fields present on L3 hop details — copied to the edge so the
+# frontend can display protocol, prefix, tag, community, etc.
+_ROUTING_FIELDS = (
+    "prefix",
+    "next_hop_ip",
+    "egress_iface",
+    "route_source",
+    "route_tag",
+    "route_age",
+    "gateway_ip",
+    "connected_interface",
+    "bgp_as_path",
+    "bgp_community",
+    "bgp_local_pref",
+    "bgp_origin",
+    "bgp_med",
+    "bgp_weight",
+)
+
 _IFACE_COUNTER_FIELDS = (
     "state",
     "description",
@@ -233,6 +252,14 @@ def build_graph(
                 ed["src_interface_netbox_url"] = _interface_url(netbox_url, src_dev, src_iface)
             if dst_iface:
                 ed["dst_interface_netbox_url"] = _interface_url(netbox_url, dst_dev, dst_iface)
+        # Routing fields (L3 hops) — prefer src side, fall back to dst side.
+        for rf in _ROUTING_FIELDS:
+            val = src_details.get(rf)
+            if val is None:
+                val = dst_details.get(rf)
+            if val is not None:
+                ed[rf] = val
+
         # Raw show-interface output — kept separate from numeric counter fields.
         if src_details.get("raw_output"):
             ed["src_raw_output"] = src_details["raw_output"]

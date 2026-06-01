@@ -1716,6 +1716,76 @@ def _run_l2_at_final_hop(
     return result
 
 
+def get_bgp_route_detail(
+    client: CiscoDeviceClient,
+    prefix: str,
+) -> Dict:
+    """Run ``show ip bgp <prefix>`` and parse key BGP attributes.
+
+    Returns a dict with keys (all may be None):
+      bgp_as_path    — full AS-path string, e.g. ``"65001 65002 65003"``
+      bgp_community  — community string, e.g. ``"65001:100 65002:200"``
+      bgp_local_pref — local preference (int)
+      bgp_origin     — origin code: ``"igp"`` / ``"egp"`` / ``"incomplete"``
+      bgp_med        — multi-exit discriminator (int)
+      bgp_weight     — weight (IOS-specific, int)
+    """
+    result: Dict = {
+        "bgp_as_path":    None,
+        "bgp_community":  None,
+        "bgp_local_pref": None,
+        "bgp_origin":     None,
+        "bgp_med":        None,
+        "bgp_weight":     None,
+    }
+    if not prefix:
+        return result
+    try:
+        output = _send_cmd(client, f"show ip bgp {prefix}")
+    except Exception as exc:
+        log.debug("get_bgp_route_detail(%r): %s", prefix, exc)
+        return result
+    if not output or "network not in table" in output.lower():
+        return result
+
+    # AS-path — one or more lines of space-separated AS numbers, right after the
+    # next-hop IP line.  The best-path line is marked with '*>'.
+    # "    65001 65002 65003" or "    65454" or "    (empty for iBGP)"
+    m = re.search(
+        r"^\s+\*?[>i\s]*(\d[\d\s]*\d|\d+)\s*$",
+        output, re.MULTILINE,
+    )
+    if m:
+        result["bgp_as_path"] = m.group(1).strip()
+
+    # Local preference
+    m = re.search(r"\blocalpref\s+(\d+)\b", output, re.IGNORECASE)
+    if m:
+        result["bgp_local_pref"] = int(m.group(1))
+
+    # MED
+    m = re.search(r"\bmetric\s+(\d+)\b", output, re.IGNORECASE)
+    if m:
+        result["bgp_med"] = int(m.group(1))
+
+    # Weight (IOS)
+    m = re.search(r"\bweight\s+(\d+)\b", output, re.IGNORECASE)
+    if m:
+        result["bgp_weight"] = int(m.group(1))
+
+    # Origin
+    m = re.search(r"\bOrigin\s+(igp|egp|incomplete)\b", output, re.IGNORECASE)
+    if m:
+        result["bgp_origin"] = m.group(1).lower()
+
+    # Community — IOS: "Community: 65001:100 65002:200"
+    m = re.search(r"Community:\s*(.+?)(?:\r?\n|$)", output, re.IGNORECASE)
+    if m:
+        result["bgp_community"] = m.group(1).strip()
+
+    return result
+
+
 def _cdp_l2_walk_between_l3_hops(
     client:         CiscoDeviceClient,
     device_type:    str,
@@ -2097,6 +2167,19 @@ def run_l3_path_trace(
 
             print(f"[L3]   show ip route {dst_ip} → egress routes")
             egress_routes = get_routes_for_ip(client, dst_ip)
+
+            # ── Enrich BGP routes with community / AS-path / local-pref ─────
+            # Done here (while session is open) for both topology and full mode
+            # because BGP attributes are routing topology, not interface counters.
+            _seen_bgp_prefixes: set = set()
+            for _r in egress_routes:
+                _rsrc = (_r.get("route_source") or "").lower()
+                _pfx  = _r.get("prefix")
+                if "bgp" in _rsrc and _pfx and _pfx not in _seen_bgp_prefixes:
+                    _seen_bgp_prefixes.add(_pfx)
+                    print(f"[L3]   show ip bgp {_pfx} → BGP attributes")
+                    _bgp = get_bgp_route_detail(client, _pfx)
+                    _r.update({k: v for k, v in _bgp.items() if v is not None})
 
             # ── Collect interface detail for ingress + egress interfaces ─────
             # Skipped in topology_only mode — enrichment phase collects these.
@@ -2978,13 +3061,19 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
             # Gateway hop — show which ECMP route this path follows.
             iface   = ingress or "—"
             details = {k: v for k, v in {
-                "gateway_ip":   hop.get("ip"),
-                "next_hop_ip":  sel.get("next_hop"),
-                "egress_iface": sel.get("exit_interface"),
-                "prefix":       sel.get("prefix"),
-                "route_source": sel.get("route_source"),
-                "route_tag":    sel.get("route_tag"),
-                "route_age":    sel.get("route_age"),
+                "gateway_ip":     hop.get("ip"),
+                "next_hop_ip":    sel.get("next_hop"),
+                "egress_iface":   sel.get("exit_interface"),
+                "prefix":         sel.get("prefix"),
+                "route_source":   sel.get("route_source"),
+                "route_tag":      sel.get("route_tag"),
+                "route_age":      sel.get("route_age"),
+                "bgp_as_path":    sel.get("bgp_as_path"),
+                "bgp_community":  sel.get("bgp_community"),
+                "bgp_local_pref": sel.get("bgp_local_pref"),
+                "bgp_origin":     sel.get("bgp_origin"),
+                "bgp_med":        sel.get("bgp_med"),
+                "bgp_weight":     sel.get("bgp_weight"),
             }.items() if v is not None}
         else:
             # Intermediate or final L3 hop.
@@ -3002,11 +3091,18 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
             elif egresses:
                 r = egresses[0]
                 details = {k: v for k, v in {
-                    "next_hop_ip":  r.get("next_hop"),
-                    "prefix":       r.get("prefix"),
-                    "egress_iface": r.get("exit_interface"),
-                    "route_source": r.get("route_source"),
-                    "route_tag":    r.get("route_tag"),
+                    "next_hop_ip":    r.get("next_hop"),
+                    "prefix":         r.get("prefix"),
+                    "egress_iface":   r.get("exit_interface"),
+                    "route_source":   r.get("route_source"),
+                    "route_tag":      r.get("route_tag"),
+                    "route_age":      r.get("route_age"),
+                    "bgp_as_path":    r.get("bgp_as_path"),
+                    "bgp_community":  r.get("bgp_community"),
+                    "bgp_local_pref": r.get("bgp_local_pref"),
+                    "bgp_origin":     r.get("bgp_origin"),
+                    "bgp_med":        r.get("bgp_med"),
+                    "bgp_weight":     r.get("bgp_weight"),
                 }.items() if v is not None}
             else:
                 details = {}

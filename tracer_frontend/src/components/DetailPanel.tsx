@@ -3,6 +3,7 @@ import { X, ExternalLink, RefreshCw } from 'lucide-react';
 import type { SelectedElement, NodeData, EdgeData, StackMember } from '../types/trace';
 import { useTraceStore } from '../store/traceStore';
 import { fetchInterfaceDetail } from '../api/client';
+import { RoutingSection } from './ConnectionEdge';
 
 // ---------------------------------------------------------------------------
 // Resize hook — drag the LEFT edge of a right-side panel
@@ -345,6 +346,9 @@ function EdgeDetail({ data }: { data: EdgeData }) {
           />
         )}
       </Section>
+
+      {/* L3 routing information */}
+      <RoutingSection data={data} />
 
       {/* Link */}
       <Section title="Link">
