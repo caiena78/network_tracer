@@ -3,6 +3,7 @@ import type {
   GraphResponse,
   HistoryDetail,
   HistoryListResponse,
+  InterfaceDetailResult,
   TraceSummary,
   TraceResponse,
 } from '../types/trace';
@@ -81,6 +82,21 @@ export async function listHistory(params: {
 export async function getHistoryEntry(id: string): Promise<HistoryDetail> {
   try {
     const res = await http.get<HistoryDetail>(`/api/v1/history/${id}`);
+    return res.data;
+  } catch (err) {
+    throw new Error(extractMessage(err));
+  }
+}
+
+export async function fetchInterfaceDetail(
+  deviceIp: string,
+  iface:    string,
+): Promise<InterfaceDetailResult> {
+  try {
+    const res = await http.post<InterfaceDetailResult>('/api/v1/interfaces/detail', {
+      device_ip: deviceIp,
+      interface: iface,
+    });
     return res.data;
   } catch (err) {
     throw new Error(extractMessage(err));

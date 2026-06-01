@@ -165,3 +165,20 @@ class HistoryListResponse(BaseModel):
     total:   int
     limit:   int
     offset:  int
+
+
+# ---------------------------------------------------------------------------
+# On-demand interface detail
+# ---------------------------------------------------------------------------
+
+class InterfaceDetailRequest(BaseModel):
+    """Body for POST /api/v1/interfaces/detail."""
+    device_ip: str  = Field(..., description="SSH management IP of the device")
+    interface: str  = Field(..., description="Interface name, e.g. GigabitEthernet0/1")
+
+
+class InterfaceDetailResponse(BaseModel):
+    device_ip:  str
+    interface:  str
+    raw_output: str
+    parsed:     Dict[str, Any]

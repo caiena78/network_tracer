@@ -4,10 +4,11 @@ import {
   getBezierPath,
 } from 'reactflow';
 import type { EdgeProps } from 'reactflow';
-import { ExternalLink, AlertTriangle } from 'lucide-react';
-import type { EdgeData } from '../types/trace';
+import { ExternalLink, AlertTriangle, RefreshCw } from 'lucide-react';
+import type { EdgeData, InterfaceDetailResult } from '../types/trace';
 import { edgeColor } from '../transform/graphTransform';
 import { useTraceStore } from '../store/traceStore';
+import { fetchInterfaceDetail } from '../api/client';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -64,7 +65,9 @@ function shortSpeed(speed: string | undefined): string {
 
 function EdgeChip({ data, color, selected }: { data: EdgeData; color: string; selected: boolean }) {
   const errors = hasErrors(data);
-  const iface  = data.dst_interface || data.src_interface || '';
+  // Use the full "src_iface → dst_iface" label built by graph_builder;
+  // fall back to whichever single interface is available.
+  const iface  = data.label || data.src_interface || data.dst_interface || '';
   const speed  = shortSpeed(data.speed as string | undefined);
 
   return (
@@ -107,13 +110,53 @@ interface EdgeTooltipProps {
   data:          EdgeData;
   x:             number;
   y:             number;
+  deviceIpMap:   Record<string, string>;
   onMouseEnter:  () => void;
   onMouseLeave:  () => void;
 }
 
-function EdgeTooltip({ data, x, y, onMouseEnter, onMouseLeave }: EdgeTooltipProps) {
-  const [tab, setTab] = useState<TooltipTab>('details');
-  const hasRaw = !!(data.src_raw_output || data.dst_raw_output);
+function EdgeTooltip({ data, x, y, deviceIpMap, onMouseEnter, onMouseLeave }: EdgeTooltipProps) {
+  const [tab, setTab]           = useState<TooltipTab>('details');
+  const [fetching, setFetching] = useState<string | null>(null); // device/iface being fetched
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [liveResults, setLiveResults] = useState<Record<string, InterfaceDetailResult>>({});
+  const addEnrichment = useTraceStore((s) => s.pendingEnrichments);
+  const setPending    = useTraceStore.getState;
+
+  const handleFetch = useCallback(async (device: string, iface: string) => {
+    const ip = deviceIpMap[device];
+    if (!ip || !iface) return;
+    const key = `${device}/${iface}`;
+    setFetching(key);
+    setFetchError(null);
+    try {
+      const result = await fetchInterfaceDetail(ip, iface);
+      setLiveResults((prev) => ({ ...prev, [key]: result }));
+      // Also push into pending enrichments so the edge chip + graph update
+      useTraceStore.setState((s) => ({
+        pendingEnrichments: [
+          ...s.pendingEnrichments,
+          { device, interface: iface, data: { ...result.parsed, raw_output: result.raw_output } },
+        ],
+      }));
+      setTab('raw');
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : 'Fetch failed');
+    } finally {
+      setFetching(null);
+    }
+  }, [deviceIpMap]);
+
+  // Merge live results into displayed raw output
+  const srcKey = `${data.src_device}/${data.src_interface}`;
+  const dstKey = `${data.dst_device}/${data.dst_interface}`;
+  const displayData: EdgeData = {
+    ...data,
+    src_raw_output: liveResults[srcKey]?.raw_output ?? data.src_raw_output,
+    dst_raw_output: liveResults[dstKey]?.raw_output ?? data.dst_raw_output,
+  };
+
+  const hasRaw = !!(displayData.src_raw_output || displayData.dst_raw_output);
 
   return (
     <div
@@ -170,8 +213,36 @@ function EdgeTooltip({ data, x, y, onMouseEnter, onMouseLeave }: EdgeTooltipProp
         {tab === 'details' ? (
           <DetailsTab data={data} />
         ) : (
-          <RawTab data={data} />
+          <RawTab data={displayData} />
         )}
+
+        {/* Fetch buttons */}
+        <div style={{ marginTop: '10px', borderTop: '1px solid var(--border-color)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {fetchError && (
+            <div style={{ fontSize: '11px', color: 'var(--color-error)', marginBottom: '4px' }}>{fetchError}</div>
+          )}
+          {([
+            { dev: data.dst_device, iface: data.dst_interface, label: 'dst' },
+            { dev: data.src_device, iface: data.src_interface, label: 'src' },
+          ] as Array<{ dev?: string; iface?: string | null; label: string }>)
+            .filter((s) => s.dev && s.iface && deviceIpMap[s.dev!])
+            .map((s) => {
+              const key = `${s.dev}/${s.iface}`;
+              const busy = fetching === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => void handleFetch(s.dev!, s.iface!)}
+                  disabled={!!fetching}
+                  className="btn btn-secondary"
+                  style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '5px', justifyContent: 'center' }}
+                >
+                  <RefreshCw size={11} className={busy ? 'spin' : ''} />
+                  {busy ? 'Fetching…' : `Get interface details — ${s.dev} ${s.iface}`}
+                </button>
+              );
+            })}
+        </div>
       </div>
     </div>
   );
@@ -342,6 +413,7 @@ function ConnectionEdge({
   const showTooltip = edgeHovered || tooltipHovered;
 
   const setSelectedElement = useTraceStore((s) => s.setSelectedElement);
+  const deviceIpMap = useTraceStore((s) => s.graph?.metadata?.device_ip_map ?? {});
 
   const edgeData = data ?? ({} as EdgeData);
   const color    = edgeColor(edgeData.layer ?? 'L2');
@@ -409,6 +481,7 @@ function ConnectionEdge({
             data={edgeData}
             x={labelX}
             y={labelY}
+            deviceIpMap={deviceIpMap}
             onMouseEnter={() => setTooltipHovered(true)}
             onMouseLeave={() => setTooltipHovered(false)}
           />

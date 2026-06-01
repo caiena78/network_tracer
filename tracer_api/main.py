@@ -57,6 +57,8 @@ from .models        import (
     HistoryDetail,
     HistoryListResponse,
     HistorySummary,
+    InterfaceDetailRequest,
+    InterfaceDetailResponse,
     TraceRequest,
     TraceResponse,
     TraceSummary,
@@ -461,6 +463,78 @@ async def delete_history_entry(entry_id: str) -> None:
             detail=f"History entry {entry_id!r} not found",
         )
 
+
+
+# ---------------------------------------------------------------------------
+# On-demand interface detail
+# ---------------------------------------------------------------------------
+
+@app.post(
+    "/api/v1/interfaces/detail",
+    response_model=InterfaceDetailResponse,
+    summary="Fetch live show-interface output for one interface",
+    tags=["interfaces"],
+    dependencies=[Depends(_check_api_key)],
+)
+async def get_interface_detail_ondemand(
+    body: InterfaceDetailRequest,
+) -> Dict:
+    """
+    SSH to *device_ip*, run ``show interface <interface>``, and return
+    the full raw output together with the parsed counter fields.
+
+    This endpoint is used by the frontend "Get interface details" button
+    so operators can refresh stale counter data without re-running the
+    full trace.
+    """
+    import ipaddress
+
+    # Basic input validation
+    try:
+        ipaddress.ip_address(body.device_ip)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{body.device_ip!r} is not a valid IP address",
+        )
+    if not body.interface.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="interface must not be empty",
+        )
+
+    def _run_sync() -> Dict:
+        from .tracer_runner import resolve_credentials
+
+        _, _, creds = resolve_credentials()
+
+        try:
+            client = nt._open_device_client(body.device_ip, "ios", creds)
+        except nt.GatewayConnectionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Cannot connect to {body.device_ip}: {exc}",
+            )
+
+        try:
+            detail = nt.get_interface_detail(client, "ios", body.interface)
+        finally:
+            try:
+                client._cli_disconnect()
+            except Exception:
+                pass
+
+        raw_output = detail.pop("raw_output", "") or ""
+        return {
+            "device_ip":  body.device_ip,
+            "interface":  body.interface,
+            "raw_output": raw_output,
+            "parsed":     detail,
+        }
+
+    loop   = asyncio.get_running_loop()
+    result = await loop.run_in_executor(_thread_pool, _run_sync)
+    return result
 
 
 # ---------------------------------------------------------------------------

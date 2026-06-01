@@ -151,11 +151,20 @@ export interface PathInfo {
 }
 
 export interface GraphMetadata {
-  src_ip:      string;
-  dst_ip:      string;
-  gateway_ip:  string;
-  total_paths: number;
-  netbox_url?: string | null;
+  src_ip:         string;
+  dst_ip:         string;
+  gateway_ip:     string;
+  total_paths:    number;
+  netbox_url?:    string | null;
+  /** device_name → SSH management IP — used for on-demand show-interface calls */
+  device_ip_map?: Record<string, string>;
+}
+
+export interface InterfaceDetailResult {
+  device_ip:  string;
+  interface:  string;
+  raw_output: string;
+  parsed:     Record<string, unknown>;
 }
 
 export interface GraphResponse {

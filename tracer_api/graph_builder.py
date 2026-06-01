@@ -134,6 +134,16 @@ def build_graph(
     dst_ip     = flat_paths[0]["dst_ip"]        if flat_paths else ""
     gateway_ip = flat_paths[0].get("gateway_ip", "")
 
+    # Build device_name → ssh_ip map so the frontend can make on-demand
+    # show-interface calls without having to store IPs on every edge.
+    device_ip_map: Dict[str, str] = {}
+    for _fp in flat_paths:
+        for _hop in (_fp.get("path") or []):
+            _dn = _hop.get("device")
+            _di = _hop.get("device_ip")
+            if _dn and _di:
+                device_ip_map[_dn] = _di
+
     # ── Dedicated source-endpoint node (one per graph, not per hop) ──────────
     src_host_id = f"host::{src_ip}"
     if src_ip and src_host_id not in node_ids:
@@ -356,11 +366,12 @@ def build_graph(
         "elements": elements,
         "paths":    paths_out,
         "metadata": {
-            "src_ip":      src_ip,
-            "dst_ip":      dst_ip,
-            "gateway_ip":  gateway_ip,
-            "total_paths": len(flat_paths),
-            "netbox_url":  netbox_url or None,
+            "src_ip":        src_ip,
+            "dst_ip":        dst_ip,
+            "gateway_ip":    gateway_ip,
+            "total_paths":   len(flat_paths),
+            "netbox_url":    netbox_url or None,
+            "device_ip_map": device_ip_map,
         },
     }
 

@@ -1,7 +1,8 @@
-import React from 'react';
-import { X, ExternalLink } from 'lucide-react';
-import type { SelectedElement, NodeData, EdgeData } from '../types/trace';
+import React, { useState } from 'react';
+import { X, ExternalLink, RefreshCw } from 'lucide-react';
+import type { InterfaceDetailResult, SelectedElement, NodeData, EdgeData } from '../types/trace';
 import { useTraceStore } from '../store/traceStore';
+import { fetchInterfaceDetail } from '../api/client';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,6 +34,98 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 // ---------------------------------------------------------------------------
+// On-demand fetch button
+// ---------------------------------------------------------------------------
+
+function FetchButton({
+  device,
+  iface,
+  deviceIpMap,
+  onResult,
+}: {
+  device:       string;
+  iface:        string;
+  deviceIpMap:  Record<string, string>;
+  onResult:     (r: InterfaceDetailResult) => void;
+}) {
+  const ip = deviceIpMap[device];
+  const [busy,  setBusy]  = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!ip) return null;
+
+  const handleClick = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await fetchInterfaceDetail(ip, iface);
+      onResult(result);
+      // Push into pending enrichments so the diagram chip updates too
+      useTraceStore.setState((s) => ({
+        pendingEnrichments: [
+          ...s.pendingEnrichments,
+          { device, interface: iface, data: { ...result.parsed, raw_output: result.raw_output } },
+        ],
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Fetch failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: '6px' }}>
+      <button
+        onClick={() => void handleClick()}
+        disabled={busy}
+        className="btn btn-secondary"
+        style={{ fontSize: '12px', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: 'center' }}
+      >
+        <RefreshCw size={12} className={busy ? 'spin' : ''} />
+        {busy ? 'Fetching…' : `Get interface details — ${device} ${iface}`}
+      </button>
+      {error && (
+        <div style={{ fontSize: '11px', color: 'var(--color-error)', marginTop: '4px' }}>{error}</div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Raw output block
+// ---------------------------------------------------------------------------
+
+function RawBlock({ title, text }: { title: string; text: string }) {
+  return (
+    <div style={{ marginBottom: '10px' }}>
+      {title && (
+        <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '4px' }}>
+          {title}
+        </div>
+      )}
+      <pre
+        style={{
+          margin:       0,
+          padding:      '6px 8px',
+          background:   'var(--bg-code)',
+          borderRadius: '4px',
+          fontSize:     '10px',
+          fontFamily:   'monospace',
+          color:        'var(--text-primary)',
+          whiteSpace:   'pre',
+          overflowX:    'auto',
+          maxHeight:    '260px',
+          overflowY:    'auto',
+        }}
+      >
+        {text}
+      </pre>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Node detail
 // ---------------------------------------------------------------------------
 
@@ -50,16 +143,13 @@ function NodeDetail({ data }: { data: NodeData }) {
             <Row label="State"       value={data.state} />
             <Row label="Speed"       value={data.speed} />
             <Row label="Duplex"      value={data.duplex} />
+            <Row label="Version"     value={data.os_version as string | undefined} />
+            <Row label="Uptime"      value={data.uptime as string | undefined} />
           </tbody>
         </table>
       </Section>
       {data.netbox_url && (
-        <a
-          href={data.netbox_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="netbox-link"
-        >
+        <a href={data.netbox_url as string} target="_blank" rel="noopener noreferrer" className="netbox-link">
           <ExternalLink size={12} />
           View device in NetBox
         </a>
@@ -73,6 +163,21 @@ function NodeDetail({ data }: { data: NodeData }) {
 // ---------------------------------------------------------------------------
 
 function EdgeDetail({ data }: { data: EdgeData }) {
+  const deviceIpMap = useTraceStore((s) => s.graph?.metadata?.device_ip_map ?? {});
+
+  // Live-fetched raw output overrides enrichment output
+  const [liveOutputs, setLiveOutputs] = useState<Record<string, string>>({});
+
+  const srcRaw = liveOutputs[`${data.src_device}/${data.src_interface}`]
+    ?? data.src_raw_output;
+  const dstRaw = liveOutputs[`${data.dst_device}/${data.dst_interface}`]
+    ?? data.dst_raw_output;
+
+  const handleResult = (side: 'src' | 'dst') => (r: InterfaceDetailResult) => {
+    const key = `${side === 'src' ? data.src_device : data.dst_device}/${side === 'src' ? data.src_interface : data.dst_interface}`;
+    setLiveOutputs((prev) => ({ ...prev, [key]: r.raw_output }));
+  };
+
   const hasErrors =
     (data.runts ?? 0) > 0 ||
     (data.crc ?? 0) > 0 ||
@@ -82,35 +187,42 @@ function EdgeDetail({ data }: { data: EdgeData }) {
 
   return (
     <>
-      <Section title="Link">
-        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-          <tbody>
-            <Row label="Layer"         value={data.layer} />
-            <Row label="VLAN"          value={data.vlan} />
-            <Row label="State"         value={data.state} />
-          </tbody>
-        </table>
-      </Section>
+      {/* Source side */}
+      {(data.src_device || data.src_interface) && (
+        <Section title="Source">
+          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <tbody>
+              <Row label="Device"    value={data.src_device} />
+              <Row label="Interface" value={data.src_interface} />
+            </tbody>
+          </table>
+          {data.src_interface_netbox_url && (
+            <a href={data.src_interface_netbox_url} target="_blank" rel="noopener noreferrer" className="netbox-link">
+              <ExternalLink size={12} /> Source interface in NetBox
+            </a>
+          )}
+          {data.src_device && data.src_interface && (
+            <FetchButton
+              device={data.src_device}
+              iface={data.src_interface}
+              deviceIpMap={deviceIpMap}
+              onResult={handleResult('src')}
+            />
+          )}
+        </Section>
+      )}
 
-      <Section title="Source">
+      {/* Destination side */}
+      <Section title="Switch Port">
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
           <tbody>
-            <Row label="Device"    value={data.src_device} />
-            <Row label="Interface" value={data.src_interface} />
-          </tbody>
-        </table>
-        {data.src_interface_netbox_url && (
-          <a href={data.src_interface_netbox_url} target="_blank" rel="noopener noreferrer" className="netbox-link">
-            <ExternalLink size={12} /> Source interface in NetBox
-          </a>
-        )}
-      </Section>
-
-      <Section title="Destination">
-        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-          <tbody>
-            <Row label="Device"    value={data.dst_device} />
-            <Row label="Interface" value={data.dst_interface} />
+            <Row label="Device"      value={data.dst_device} />
+            <Row label="Interface"   value={data.dst_interface} />
+            <Row label="Description" value={data.description as string | undefined} />
+            <Row label="Speed"       value={data.speed as string | undefined} />
+            <Row label="Duplex"      value={data.duplex as string | undefined} />
+            <Row label="VLAN"        value={data.vlan != null ? String(data.vlan) : undefined} />
+            <Row label="State"       value={data.state as string | undefined} />
           </tbody>
         </table>
         {data.dst_interface_netbox_url && (
@@ -118,8 +230,26 @@ function EdgeDetail({ data }: { data: EdgeData }) {
             <ExternalLink size={12} /> Destination interface in NetBox
           </a>
         )}
+        {data.dst_device && data.dst_interface && (
+          <FetchButton
+            device={data.dst_device}
+            iface={data.dst_interface}
+            deviceIpMap={deviceIpMap}
+            onResult={handleResult('dst')}
+          />
+        )}
       </Section>
 
+      {/* Link */}
+      <Section title="Link">
+        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+          <tbody>
+            <Row label="Layer" value={data.layer} />
+          </tbody>
+        </table>
+      </Section>
+
+      {/* Error counters */}
       {hasErrors && (
         <Section title="Interface Errors">
           <table style={{ borderCollapse: 'collapse', width: '100%' }}>
@@ -134,6 +264,24 @@ function EdgeDetail({ data }: { data: EdgeData }) {
           </table>
         </Section>
       )}
+
+      {/* Raw show interface output */}
+      {(srcRaw || dstRaw) && (
+        <Section title="Show Interface">
+          {srcRaw && data.src_interface && (
+            <RawBlock
+              title={dstRaw ? `${data.src_device} / ${data.src_interface}` : ''}
+              text={srcRaw}
+            />
+          )}
+          {dstRaw && data.dst_interface && (
+            <RawBlock
+              title={srcRaw ? `${data.dst_device} / ${data.dst_interface}` : ''}
+              text={dstRaw}
+            />
+          )}
+        </Section>
+      )}
     </>
   );
 }
@@ -143,7 +291,7 @@ function EdgeDetail({ data }: { data: EdgeData }) {
 // ---------------------------------------------------------------------------
 
 export default function DetailPanel() {
-  const selectedElement = useTraceStore((s) => s.selectedElement);
+  const selectedElement    = useTraceStore((s) => s.selectedElement);
   const setSelectedElement = useTraceStore((s) => s.setSelectedElement);
 
   if (!selectedElement) return null;
@@ -151,39 +299,39 @@ export default function DetailPanel() {
   const title =
     selectedElement.type === 'node'
       ? selectedElement.data.label
-      : `${selectedElement.data.src_device ?? '?'} → ${selectedElement.data.dst_device ?? '?'}`;
+      : `${(selectedElement.data as EdgeData).src_device ?? '?'} → ${(selectedElement.data as EdgeData).dst_device ?? '?'}`;
 
   return (
     <div
       style={{
-        width: '280px',
-        flexShrink: 0,
-        borderLeft: '1px solid var(--border-color)',
-        background: 'var(--bg-panel)',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
+        width:       '300px',
+        flexShrink:   0,
+        borderLeft:  '1px solid var(--border-color)',
+        background:  'var(--bg-panel)',
+        display:     'flex',
+        flexDirection:'column',
+        overflow:    'hidden',
       }}
     >
       {/* Header */}
       <div
         style={{
-          padding: '12px 14px',
-          borderBottom: '1px solid var(--border-color)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
+          padding:       '12px 14px',
+          borderBottom:  '1px solid var(--border-color)',
+          display:       'flex',
+          alignItems:    'center',
+          gap:           '8px',
         }}
       >
         <div
           style={{
-            flex: 1,
-            fontSize: '13px',
-            fontWeight: 700,
-            color: 'var(--text-primary)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
+            flex:           1,
+            fontSize:       '13px',
+            fontWeight:     700,
+            color:          'var(--text-primary)',
+            overflow:       'hidden',
+            textOverflow:   'ellipsis',
+            whiteSpace:     'nowrap',
           }}
         >
           {title}
