@@ -117,11 +117,12 @@ interface EdgeTooltipProps {
 
 function EdgeTooltip({ data, x, y, deviceIpMap, onMouseEnter, onMouseLeave }: EdgeTooltipProps) {
   const [tab, setTab]           = useState<TooltipTab>('details');
-  const [fetching, setFetching] = useState<string | null>(null); // device/iface being fetched
+  const [fetching, setFetching] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [liveResults, setLiveResults] = useState<Record<string, InterfaceDetailResult>>({});
-  const addEnrichment = useTraceStore((s) => s.pendingEnrichments);
-  const setPending    = useTraceStore.getState;
+
+  // Read from and write to the persistent store cache
+  const cache            = useTraceStore((s) => s.interfaceDetailCache);
+  const cacheResult      = useTraceStore((s) => s.cacheInterfaceDetail);
 
   const handleFetch = useCallback(async (device: string, iface: string) => {
     const ip = deviceIpMap[device];
@@ -131,8 +132,9 @@ function EdgeTooltip({ data, x, y, deviceIpMap, onMouseEnter, onMouseLeave }: Ed
     setFetchError(null);
     try {
       const result = await fetchInterfaceDetail(ip, iface);
-      setLiveResults((prev) => ({ ...prev, [key]: result }));
-      // Also push into pending enrichments so the edge chip + graph update
+      // Persist in store so tooltip and sidebar share the same data
+      cacheResult(device, iface, result);
+      // Also push into pending enrichments so the edge chip updates
       useTraceStore.setState((s) => ({
         pendingEnrichments: [
           ...s.pendingEnrichments,
@@ -145,15 +147,15 @@ function EdgeTooltip({ data, x, y, deviceIpMap, onMouseEnter, onMouseLeave }: Ed
     } finally {
       setFetching(null);
     }
-  }, [deviceIpMap]);
+  }, [deviceIpMap, cacheResult]);
 
-  // Merge live results into displayed raw output
+  // Prefer store cache over enrichment-phase raw output
   const srcKey = `${data.src_device}/${data.src_interface}`;
   const dstKey = `${data.dst_device}/${data.dst_interface}`;
   const displayData: EdgeData = {
     ...data,
-    src_raw_output: liveResults[srcKey]?.raw_output ?? data.src_raw_output,
-    dst_raw_output: liveResults[dstKey]?.raw_output ?? data.dst_raw_output,
+    src_raw_output: cache[srcKey]?.raw_output ?? data.src_raw_output,
+    dst_raw_output: cache[dstKey]?.raw_output ?? data.dst_raw_output,
   };
 
   const hasRaw = !!(displayData.src_raw_output || displayData.dst_raw_output);

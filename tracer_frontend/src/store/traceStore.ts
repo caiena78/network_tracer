@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import * as api from '../api/client';
-import type { DeviceUpdate, GraphResponse, InterfaceUpdate, PortchannelUpdate, SelectedElement } from '../types/trace';
+import type { DeviceUpdate, GraphResponse, InterfaceDetailResult, InterfaceUpdate, PortchannelUpdate, SelectedElement } from '../types/trace';
 
 const BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
@@ -32,6 +32,10 @@ interface TraceState {
   pendingPortchannels:  PortchannelUpdate[];
   pendingDeviceUpdates: DeviceUpdate[];
 
+  // On-demand show-interface cache — keyed by "device/interface"
+  // Persists across tooltip unmounts and is shared between the tooltip and sidebar.
+  interfaceDetailCache: Record<string, InterfaceDetailResult>;
+
   // Selection (detail panel)
   selectedElement: SelectedElement | null;
 
@@ -45,9 +49,10 @@ interface TraceState {
   cancelTrace:            () => void;
   clearTrace:             () => void;
   loadGraph:              (graph: GraphResponse) => void;
-  setSelectedElement:      (el: SelectedElement | null) => void;
-  clearPendingEnrichments: () => void;
+  setSelectedElement:        (el: SelectedElement | null) => void;
+  clearPendingEnrichments:   () => void;
   clearPendingDeviceUpdates: () => void;
+  cacheInterfaceDetail:      (device: string, iface: string, result: InterfaceDetailResult) => void;
 }
 
 export const useTraceStore = create<TraceState>((set, get) => ({
@@ -62,6 +67,7 @@ export const useTraceStore = create<TraceState>((set, get) => ({
   pendingEnrichments:     [],
   pendingPortchannels:    [],
   pendingDeviceUpdates:   [],
+  interfaceDetailCache:   {},
   selectedElement:        null,
   _es:                    null,
 
@@ -70,6 +76,13 @@ export const useTraceStore = create<TraceState>((set, get) => ({
   setSelectedElement: (el) => set({ selectedElement: el }),
   clearPendingEnrichments:    () => set({ pendingEnrichments: [], pendingPortchannels: [] }),
   clearPendingDeviceUpdates:  () => set({ pendingDeviceUpdates: [] }),
+  cacheInterfaceDetail: (device, iface, result) =>
+    set((s) => ({
+      interfaceDetailCache: {
+        ...s.interfaceDetailCache,
+        [`${device}/${iface}`]: result,
+      },
+    })),
 
   loadGraph: (graph) =>
     set((s) => ({
@@ -111,15 +124,16 @@ export const useTraceStore = create<TraceState>((set, get) => ({
     get()._es?.close();
 
     set({
-      phase:               'submitting',
-      traceId:             null,
-      progress:            [],
-      error:               null,
-      graph:               null,
-      selectedElement:     null,
-      pendingEnrichments:  [],
-      pendingPortchannels: [],
-      _es:                 null,
+      phase:                'submitting',
+      traceId:              null,
+      progress:             [],
+      error:                null,
+      graph:                null,
+      selectedElement:      null,
+      pendingEnrichments:   [],
+      pendingPortchannels:  [],
+      interfaceDetailCache: {},
+      _es:                  null,
     });
 
     try {

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, ExternalLink, RefreshCw } from 'lucide-react';
-import type { InterfaceDetailResult, SelectedElement, NodeData, EdgeData } from '../types/trace';
+import type { SelectedElement, NodeData, EdgeData } from '../types/trace';
 import { useTraceStore } from '../store/traceStore';
 import { fetchInterfaceDetail } from '../api/client';
 
@@ -41,14 +41,13 @@ function FetchButton({
   device,
   iface,
   deviceIpMap,
-  onResult,
 }: {
-  device:       string;
-  iface:        string;
-  deviceIpMap:  Record<string, string>;
-  onResult:     (r: InterfaceDetailResult) => void;
+  device:      string;
+  iface:       string;
+  deviceIpMap: Record<string, string>;
 }) {
-  const ip = deviceIpMap[device];
+  const ip          = deviceIpMap[device];
+  const cacheResult = useTraceStore((s) => s.cacheInterfaceDetail);
   const [busy,  setBusy]  = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,8 +58,9 @@ function FetchButton({
     setError(null);
     try {
       const result = await fetchInterfaceDetail(ip, iface);
-      onResult(result);
-      // Push into pending enrichments so the diagram chip updates too
+      // Persist in store — shared with the tooltip and persists on re-hover
+      cacheResult(device, iface, result);
+      // Also update the diagram edge chip
       useTraceStore.setState((s) => ({
         pendingEnrichments: [
           ...s.pendingEnrichments,
@@ -164,19 +164,13 @@ function NodeDetail({ data }: { data: NodeData }) {
 
 function EdgeDetail({ data }: { data: EdgeData }) {
   const deviceIpMap = useTraceStore((s) => s.graph?.metadata?.device_ip_map ?? {});
+  // Read from shared store cache — persists across unmounts and sidebar re-opens
+  const cache = useTraceStore((s) => s.interfaceDetailCache);
 
-  // Live-fetched raw output overrides enrichment output
-  const [liveOutputs, setLiveOutputs] = useState<Record<string, string>>({});
-
-  const srcRaw = liveOutputs[`${data.src_device}/${data.src_interface}`]
-    ?? data.src_raw_output;
-  const dstRaw = liveOutputs[`${data.dst_device}/${data.dst_interface}`]
-    ?? data.dst_raw_output;
-
-  const handleResult = (side: 'src' | 'dst') => (r: InterfaceDetailResult) => {
-    const key = `${side === 'src' ? data.src_device : data.dst_device}/${side === 'src' ? data.src_interface : data.dst_interface}`;
-    setLiveOutputs((prev) => ({ ...prev, [key]: r.raw_output }));
-  };
+  const srcKey = `${data.src_device}/${data.src_interface}`;
+  const dstKey = `${data.dst_device}/${data.dst_interface}`;
+  const srcRaw = cache[srcKey]?.raw_output ?? data.src_raw_output;
+  const dstRaw = cache[dstKey]?.raw_output ?? data.dst_raw_output;
 
   const hasErrors =
     (data.runts ?? 0) > 0 ||
@@ -206,7 +200,6 @@ function EdgeDetail({ data }: { data: EdgeData }) {
               device={data.src_device}
               iface={data.src_interface}
               deviceIpMap={deviceIpMap}
-              onResult={handleResult('src')}
             />
           )}
         </Section>
@@ -235,7 +228,6 @@ function EdgeDetail({ data }: { data: EdgeData }) {
             device={data.dst_device}
             iface={data.dst_interface}
             deviceIpMap={deviceIpMap}
-            onResult={handleResult('dst')}
           />
         )}
       </Section>
