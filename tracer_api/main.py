@@ -505,6 +505,7 @@ async def get_interface_detail_ondemand(
 
     def _run_sync() -> Dict:
         from .tracer_runner import resolve_credentials
+        import network_tracer as nt  # available after tracer_runner bootstraps sys.path
 
         _, _, creds = resolve_credentials()
 

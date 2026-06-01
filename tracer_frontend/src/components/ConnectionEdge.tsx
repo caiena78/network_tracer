@@ -408,9 +408,18 @@ function ConnectionEdge({
   style,
   markerEnd,
 }: EdgeProps<EdgeData>) {
-  const [edgeHovered,    setEdgeHovered]    = useState(false);
-  const [tooltipHovered, setTooltipHovered] = useState(false);
-  const showTooltip = edgeHovered || tooltipHovered;
+  const [showTooltip, setShowTooltip] = useState(false);
+  const hideTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleHide = () => {
+    hideTimer.current = setTimeout(() => setShowTooltip(false), 120);
+  };
+  const cancelHide = () => {
+    if (hideTimer.current) {
+      clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    }
+  };
 
   const setSelectedElement = useTraceStore((s) => s.setSelectedElement);
   const deviceIpMap = useTraceStore((s) => s.graph?.metadata?.device_ip_map ?? {});
@@ -428,7 +437,7 @@ function ConnectionEdge({
     setSelectedElement({ type: 'edge', data: edgeData });
   }, [edgeData, setSelectedElement]);
 
-  const active      = edgeHovered || !!selected;
+  const active      = showTooltip || !!selected;
   const strokeWidth = active ? 3 : (style?.strokeWidth as number) ?? 2;
   const strokeColor = active ? color : errors ? '#d97706' : color;
 
@@ -441,8 +450,8 @@ function ConnectionEdge({
         stroke="transparent"
         strokeWidth={20}
         style={{ cursor: 'pointer' }}
-        onMouseEnter={() => setEdgeHovered(true)}
-        onMouseLeave={() => setEdgeHovered(false)}
+        onMouseEnter={() => { cancelHide(); setShowTooltip(true); }}
+        onMouseLeave={scheduleHide}
         onClick={handleClick}
       />
 
@@ -461,8 +470,8 @@ function ConnectionEdge({
           filter:      active ? `drop-shadow(0 0 4px ${color})` : undefined,
           transition: 'stroke-width 0.1s, stroke 0.15s',
         }}
-        onMouseEnter={() => setEdgeHovered(true)}
-        onMouseLeave={() => setEdgeHovered(false)}
+        onMouseEnter={() => { cancelHide(); setShowTooltip(true); }}
+        onMouseLeave={scheduleHide}
         onClick={handleClick}
       />
 
@@ -482,8 +491,8 @@ function ConnectionEdge({
             x={labelX}
             y={labelY}
             deviceIpMap={deviceIpMap}
-            onMouseEnter={() => setTooltipHovered(true)}
-            onMouseLeave={() => setTooltipHovered(false)}
+            onMouseEnter={cancelHide}
+            onMouseLeave={scheduleHide}
           />
         )}
       </EdgeLabelRenderer>
