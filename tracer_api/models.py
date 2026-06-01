@@ -172,47 +172,60 @@ class HistoryListResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class OrdrDeviceData(BaseModel):
-    """Device intelligence record returned by the ORDR API."""
-    # All fields are optional because ORDR may return a subset depending on
-    # what it has discovered about the device.
+    """Full device intelligence record from ORDR.  All fields are optional."""
+    # ── Identity ────────────────────────────────────────────────────────────
     ip:                   Optional[str]   = Field(None, alias="IpAddress")
     mac:                  Optional[str]   = Field(None, alias="MacAddress")
+    fqdn:                 Optional[str]   = Field(None, alias="fqdn")
+    dhcp_hostname:        Optional[str]   = Field(None, alias="dhcpHostname")
     device_name:          Optional[str]   = Field(None, alias="deviceName")
+    serial:               Optional[str]   = Field(None, alias="SerialNo")
+    # ── Classification ──────────────────────────────────────────────────────
     device_type:          Optional[str]   = Field(None, alias="DeviceType")
     device_descr:         Optional[str]   = Field(None, alias="DeviceDescr")
     group:                Optional[str]   = Field(None, alias="Group")
+    profile:              Optional[str]   = Field(None, alias="Profile")
+    endpoint_type:        Optional[str]   = Field(None, alias="endpointType")
+    classification_state: Optional[str]   = Field(None, alias="classificationState")
+    criticality:          Optional[str]   = Field(None, alias="criticality")
+    fda_class:            Optional[int]   = Field(None, alias="fdaClass")
+    # ── Hardware / Software ──────────────────────────────────────────────────
     manufacturer:         Optional[str]   = Field(None, alias="LongMfgName")
+    mfg_name:             Optional[str]   = Field(None, alias="MfgName")
     model:                Optional[str]   = Field(None, alias="ModelNameNo")
     os_type:              Optional[str]   = Field(None, alias="OsType")
+    os_version:           Optional[str]   = Field(None, alias="OsVersion")
     sw_version:           Optional[str]   = Field(None, alias="SwVersion")
-    profile:              Optional[str]   = Field(None, alias="Profile")
-    serial:               Optional[str]   = Field(None, alias="SerialNo")
+    # ── Network ─────────────────────────────────────────────────────────────
     subnet:               Optional[str]   = Field(None, alias="Subnet")
     vlan:                 Optional[int]   = Field(None, alias="Vlan")
     vlan_name:            Optional[str]   = Field(None, alias="vlanName")
+    access_type:          Optional[str]   = Field(None, alias="accessType")
+    essid:                Optional[str]   = Field(None, alias="essid")
+    dhcp_enabled:         Optional[bool]  = Field(None, alias="dhcpEnabled")
+    # ── Risk & Security ──────────────────────────────────────────────────────
     risk_state:           Optional[str]   = Field(None, alias="RiskState")
     risk_score:           Optional[float] = Field(None, alias="riskScore")
     known_vuln_risk:      Optional[str]   = Field(None, alias="knownVulnRiskState")
-    conn_status:          Optional[str]   = Field(None, alias="connStatus")
-    endpoint_type:        Optional[str]   = Field(None, alias="endpointType")
-    criticality:          Optional[str]   = Field(None, alias="criticality")
-    classification_state: Optional[str]   = Field(None, alias="classificationState")
-    access_type:          Optional[str]   = Field(None, alias="accessType")
-    fqdn:                 Optional[str]   = Field(None, alias="fqdn")
-    dhcp_enabled:         Optional[bool]  = Field(None, alias="dhcpEnabled")
-    dhcp_hostname:        Optional[str]   = Field(None, alias="dhcpHostname")
-    first_seen:           Optional[str]   = Field(None, alias="firstSeen")
-    last_seen:            Optional[str]   = Field(None, alias="lastSeen")
-    nw_equip_hostname:    Optional[str]   = Field(None, alias="nwEquipHostname")
-    nw_equip_interface:   Optional[str]   = Field(None, alias="nwEquipInterface")
-    nw_equip_scrape_ip:   Optional[str]   = Field(None, alias="nwEquipScrapeIp")
     alarm_count:          Optional[int]   = Field(None, alias="alarmCount")
     has_phi:              Optional[bool]  = Field(None, alias="hasPhi")
     has_external_flows:   Optional[str]   = Field(None, alias="hasExternalFlows")
+    is_blacklisted:       Optional[bool]  = Field(None, alias="isBlacklisted")
+    proxied:              Optional[bool]  = Field(None, alias="proxied")
+    # ── Status & Visibility ──────────────────────────────────────────────────
+    conn_status:          Optional[str]   = Field(None, alias="connStatus")
+    first_seen:           Optional[str]   = Field(None, alias="firstSeen")
+    last_seen:            Optional[str]   = Field(None, alias="lastSeen")
+    # ── Network equipment (connection point) ─────────────────────────────────
+    nw_equip_hostname:    Optional[str]   = Field(None, alias="nwEquipHostname")
+    nw_equip_interface:   Optional[str]   = Field(None, alias="nwEquipInterface")
+    nw_equip_scrape_ip:   Optional[str]   = Field(None, alias="nwEuipScrapeIp")   # API typo preserved
+    # ── Location ────────────────────────────────────────────────────────────
+    device_location:      Optional[str]   = Field(None, alias="deviceLocation")
+    sensor_location:      Optional[str]   = Field(None, alias="sensorLocation")
+    # ── Sensor ──────────────────────────────────────────────────────────────
     sensor_name:          Optional[str]   = Field(None, alias="sensorName")
     sensor_ip:            Optional[str]   = Field(None, alias="sensorIp")
-    # Pass through any extra fields ORDR may return
-    extra:                Optional[Dict[str, Any]] = None
 
     model_config = {"populate_by_name": True, "extra": "allow"}
 

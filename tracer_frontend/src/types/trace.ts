@@ -192,47 +192,56 @@ export interface GraphMetadata {
 // ---------------------------------------------------------------------------
 
 export interface OrdrDeviceData {
-  // Identification
+  // Identity
   ip?:                   string;
   mac?:                  string;
-  device_name?:          string;
   fqdn?:                 string;
   dhcp_hostname?:        string;
+  device_name?:          string;
+  serial?:               string;
   // Classification
   device_type?:          string;
   device_descr?:         string;
   group?:                string;
-  endpoint_type?:        string;
   profile?:              string;
+  endpoint_type?:        string;
   classification_state?: string;
+  criticality?:          string;
+  fda_class?:            number;
   // Hardware / Software
   manufacturer?:         string;
+  mfg_name?:             string;
   model?:                string;
   os_type?:              string;
+  os_version?:           string;
   sw_version?:           string;
-  serial?:               string;
   // Network
   subnet?:               string;
   vlan?:                 number;
   vlan_name?:            string;
   access_type?:          string;
+  essid?:                string;
   dhcp_enabled?:         boolean;
-  // Risk
+  // Risk & Security
   risk_state?:           string;
   risk_score?:           number;
   known_vuln_risk?:      string;
-  criticality?:          string;
   alarm_count?:          number;
   has_phi?:              boolean;
   has_external_flows?:   string;
+  is_blacklisted?:       boolean;
+  proxied?:              boolean;
   // Status
   conn_status?:          string;
   first_seen?:           string;
   last_seen?:            string;
-  // Network equipment (where it's connected)
+  // Network equipment (where the device is connected)
   nw_equip_hostname?:    string;
   nw_equip_interface?:   string;
   nw_equip_scrape_ip?:   string;
+  // Location
+  device_location?:      string;
+  sensor_location?:      string;
   // Sensor
   sensor_name?:          string;
   sensor_ip?:            string;

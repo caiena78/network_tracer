@@ -290,7 +290,17 @@ def query_by_ip(ip: str, timeout: int = 15) -> Dict[str, Any]:
         _dbg(f"  JSON parse error: {exc}")
         raise RuntimeError(f"ORDR response is not valid JSON: {exc}") from exc
 
-    if isinstance(data, list):
+    # Normalise three possible response shapes:
+    #   1. {"MetaData": {...}, "Devices": [{...}]}   ← paginated list response
+    #   2. [{...}]                                    ← bare list
+    #   3. {...}                                      ← single device dict
+    if isinstance(data, dict) and "Devices" in data:
+        devices = data["Devices"]
+        _dbg(f"  Response is paginated — Devices count: {len(devices)}")
+        if not devices:
+            raise OrdrDeviceNotFoundError(f"No ORDR record found for IP {ip}")
+        data = devices[0]
+    elif isinstance(data, list):
         _dbg(f"  Response is a list with {len(data)} item(s)")
         if not data:
             raise OrdrDeviceNotFoundError(f"No ORDR record found for IP {ip}")
