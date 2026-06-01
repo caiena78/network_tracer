@@ -462,6 +462,43 @@ async def delete_history_entry(entry_id: str) -> None:
         )
 
 
+
+# ---------------------------------------------------------------------------
+# Cache management
+# ---------------------------------------------------------------------------
+
+@app.delete(
+    "/api/v1/cache",
+    status_code=status.HTTP_200_OK,
+    summary="Invalidate trace result cache",
+    tags=["ops"],
+    dependencies=[Depends(_check_api_key)],
+)
+async def clear_cache(
+    src_ip: Optional[str] = Query(None, description="Source IP — required when dst_ip is provided"),
+    dst_ip: Optional[str] = Query(None, description="Destination IP — required when src_ip is provided"),
+) -> dict:
+    """
+    Clear cached trace results.
+
+    - **With** ``src_ip`` + ``dst_ip``: removes only that specific pair so the
+      next trace runs fresh against the network.
+    - **Without** query params: removes **all** cached results.
+    """
+    from .cache import get_result_cache
+
+    rc = get_result_cache()
+
+    if src_ip and dst_ip:
+        rc.invalidate(src_ip, dst_ip, settings.netbox_url)
+        log.info("Cache invalidated for %s → %s", src_ip, dst_ip)
+        return {"cleared": 1, "src_ip": src_ip, "dst_ip": dst_ip}
+
+    cleared = rc.clear_all()
+    log.info("Full cache cleared — %d entries removed", cleared)
+    return {"cleared": cleared}
+
+
 # ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------

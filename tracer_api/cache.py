@@ -143,6 +143,22 @@ class TraceResultCache:
     ) -> None:
         self._inner.set(self._key(src_ip, dst_ip, netbox_url), result)
 
+    def invalidate(
+        self,
+        src_ip: str,
+        dst_ip: str,
+        netbox_url: str,
+    ) -> None:
+        """Remove the cached result for a specific (src, dst) pair."""
+        self._inner.invalidate(self._key(src_ip, dst_ip, netbox_url))
+
+    def clear_all(self) -> int:
+        """Remove every cached result. Returns the number of entries cleared."""
+        with self._inner._lock:
+            count = len(self._inner._data)
+            self._inner._data.clear()
+        return count
+
     def sweep(self) -> int:
         return self._inner.sweep()
 

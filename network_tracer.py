@@ -1076,16 +1076,29 @@ def _parse_interface_detail_ios(output: str) -> Dict:
         result["description"] = m.group(1).strip()
 
     # ── Duplex + Speed ────────────────────────────────────────────────────────
-    # "Full-duplex, 1000Mb/s, link type is auto ..."
-    # "Half-duplex, 10Mb/s ..."
-    m = re.search(r"\b(full|half|auto)[- ]?duplex\b", output, re.IGNORECASE)
-    if m:
-        raw = m.group(0).lower().strip()
-        result["duplex"] = re.sub(r"\s+", "-", raw) if " " in raw else raw
+    # IOS always puts duplex and speed on the SAME line:
+    #   "Full-duplex, 1000Mb/s, link type is auto, media type is ..."
+    #   "Half-duplex, 10Mb/s ..."
+    # Searching the whole output risks matching the BW line
+    # ("BW 1000000 Kbit/sec") before the actual speed value.
+    # Instead, find the duplex line first and extract speed from it only.
+    for _line in output.splitlines():
+        if not re.search(r"\b(?:full|half|auto)[- ]?duplex\b", _line, re.IGNORECASE):
+            continue
+        dm = re.search(r"\b((?:full|half|auto)[- ]?duplex)\b", _line, re.IGNORECASE)
+        if dm:
+            raw = dm.group(1).lower()
+            result["duplex"] = re.sub(r"\s+", "-", raw) if " " in raw else raw
+        sm = re.search(r"\b(\d+(?:\.\d+)?\s*[GMK]b(?:/s|ps)?)\b", _line, re.IGNORECASE)
+        if sm:
+            result["speed"] = sm.group(1).strip()
+        break  # duplex line found — stop scanning
 
-    m = re.search(r"\b(\d+(?:\.\d+)?\s*[GMK]b(?:/s|ps)?)\b", output, re.IGNORECASE)
-    if m:
-        result["speed"] = m.group(1).strip()
+    # Fallback: if no duplex line contained a speed, scan the whole output
+    if not result["speed"]:
+        m = re.search(r"\b(\d+(?:\.\d+)?\s*[GMK]b(?:/s|ps)?)\b", output, re.IGNORECASE)
+        if m:
+            result["speed"] = m.group(1).strip()
 
     # ── Total output drops ────────────────────────────────────────────────────
     # "Input queue: 0/2000/0/0 ...; Total output drops: 0"

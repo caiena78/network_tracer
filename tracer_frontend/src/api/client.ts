@@ -87,6 +87,18 @@ export async function getHistoryEntry(id: string): Promise<HistoryDetail> {
   }
 }
 
+export async function clearTraceCache(srcIp?: string, dstIp?: string): Promise<{ cleared: number }> {
+  try {
+    const params: Record<string, string> = {};
+    if (srcIp) params.src_ip = srcIp;
+    if (dstIp) params.dst_ip = dstIp;
+    const res = await http.delete<{ cleared: number }>('/api/v1/cache', { params });
+    return res.data;
+  } catch (err) {
+    throw new Error(extractMessage(err));
+  }
+}
+
 export async function deleteHistoryEntry(id: string): Promise<void> {
   try {
     await http.delete(`/api/v1/history/${id}`);

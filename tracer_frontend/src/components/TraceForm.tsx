@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Play, X, RefreshCw, RotateCcw } from 'lucide-react';
+import { Play, X, RefreshCw, RotateCcw, Zap } from 'lucide-react';
 import { useTraceStore } from '../store/traceStore';
+import { clearTraceCache } from '../api/client';
 
 // ---------------------------------------------------------------------------
 // IP validation (IPv4 + IPv6)
@@ -104,6 +105,20 @@ export default function TraceForm() {
   const isError     = phase === 'error';
   const isIdle      = phase === 'idle';
 
+  const [clearing, setClearing] = useState(false);
+
+  const handleClearAndRerun = async () => {
+    setClearing(true);
+    try {
+      await clearTraceCache(srcIp, dstIp);
+    } catch {
+      // Ignore cache-clear errors — run fresh regardless
+    } finally {
+      setClearing(false);
+    }
+    void runTrace();
+  };
+
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
       <div style={{ padding: '16px 16px 0' }}>
@@ -158,20 +173,11 @@ export default function TraceForm() {
               style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
             >
               {isError ? (
-                <>
-                  <RefreshCw size={14} />
-                  Run Again
-                </>
+                <><RefreshCw size={14} />Run Again</>
               ) : isDone ? (
-                <>
-                  <RefreshCw size={14} />
-                  Re-run Trace
-                </>
+                <><RefreshCw size={14} />Re-run Trace</>
               ) : (
-                <>
-                  <Play size={14} />
-                  Run Trace
-                </>
+                <><Play size={14} />Run Trace</>
               )}
             </button>
           ) : (
@@ -183,6 +189,20 @@ export default function TraceForm() {
             >
               <X size={14} />
               Cancel
+            </button>
+          )}
+
+          {/* Clear cache + re-run — only shown when a result is loaded */}
+          {isDone && !isRunning && (
+            <button
+              type="button"
+              onClick={handleClearAndRerun}
+              disabled={clearing}
+              className="btn btn-ghost"
+              title="Clear cached result and run a completely fresh trace"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 10px', flexShrink: 0 }}
+            >
+              <Zap size={14} />
             </button>
           )}
 
