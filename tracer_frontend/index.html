@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/network-icon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Network Path Tracer — interactive L2/L3 topology visualization" />
+    <title>Network Path Tracer</title>
+    <script>
+      // Apply saved theme before React renders to prevent flash
+      (function () {
+        try {
+          var saved = localStorage.getItem('tracer-theme');
+          var preferred = saved
+            ? saved
+            : window.matchMedia('(prefers-color-scheme: dark)').matches
+            ? 'dark'
+            : 'light';
+          document.documentElement.setAttribute('data-theme', preferred);
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

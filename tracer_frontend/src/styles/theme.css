@@ -1,0 +1,100 @@
+/* ============================================================
+   CSS custom property theme system.
+   Applied via [data-theme="light"] or [data-theme="dark"] on <html>.
+   The inline script in index.html sets this before React mounts
+   to prevent FOUC.
+   ============================================================ */
+
+/* ── Light theme (default) ─────────────────────────────────── */
+:root,
+[data-theme="light"] {
+  --bg-app:           #f4f6f8;
+  --bg-panel:         #ffffff;
+  --bg-sidebar:       #ffffff;
+  --bg-header:        #ffffff;
+  --bg-tooltip:       #ffffff;
+  --bg-code:          #f6f8fa;
+  --bg-input:         #ffffff;
+  --bg-hover:         #f0f4f8;
+
+  --border-color:     #d0d7de;
+  --border-input:     #c0c7d0;
+
+  --text-primary:     #1a202c;
+  --text-secondary:   #2d3748;
+  --text-muted:       #718096;
+  --text-faint:       #a0aec0;
+
+  --color-primary:       #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-alpha: rgba(37, 99, 235, 0.15);
+
+  --color-success:        #059669;
+  --color-success-bg:     #d1fae5;
+  --color-success-border: #6ee7b7;
+
+  --color-error:        #dc2626;
+  --color-error-bg:     #fee2e2;
+  --color-error-border: #fca5a5;
+
+  --color-warning:    #d97706;
+
+  /* L2/L3 edge colours — same in both themes for consistency */
+  --l2-color:         #a0522d;  /* sienna */
+  --l3-color:         #1e90ff;  /* dodger blue */
+
+  /* Diagram */
+  --diagram-bg:       #f8fafc;
+  --diagram-dots:     #c8d0da;
+  --node-bg:          #ffffff;
+  --minimap-mask:     rgba(200, 210, 220, 0.3);
+
+  /* Scrollbar */
+  --scrollbar-thumb: #c0c8d4;
+  --scrollbar-track: transparent;
+}
+
+/* ── Dark theme ─────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg-app:           #0d1117;
+  --bg-panel:         #161b22;
+  --bg-sidebar:       #161b22;
+  --bg-header:        #161b22;
+  --bg-tooltip:       #1c2230;
+  --bg-code:          #1a1f2b;
+  --bg-input:         #1c2230;
+  --bg-hover:         #1f2937;
+
+  --border-color:     #30363d;
+  --border-input:     #3d4451;
+
+  --text-primary:     #e2e8f0;
+  --text-secondary:   #cbd5e1;
+  --text-muted:       #7d8da8;
+  --text-faint:       #4a5568;
+
+  --color-primary:       #3b82f6;
+  --color-primary-hover: #2563eb;
+  --color-primary-alpha: rgba(59, 130, 246, 0.2);
+
+  --color-success:        #10b981;
+  --color-success-bg:     #064e3b;
+  --color-success-border: #065f46;
+
+  --color-error:        #f87171;
+  --color-error-bg:     #450a0a;
+  --color-error-border: #7f1d1d;
+
+  --color-warning:    #f59e0b;
+
+  --l2-color:         #cd7843;  /* slightly brighter sienna for dark bg */
+  --l3-color:         #60a5fa;  /* lighter blue for dark bg */
+
+  --diagram-bg:       #0d1117;
+  --diagram-dots:     #21262d;
+  --node-bg:          #161b22;
+  --minimap-mask:     rgba(13, 17, 23, 0.6);
+
+  --scrollbar-thumb: #30363d;
+  --scrollbar-track: transparent;
+}

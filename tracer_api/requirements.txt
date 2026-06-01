@@ -1,0 +1,40 @@
+# requirements.txt — standalone tracer_api folder
+# ================================================
+# Install with:  pip install -r requirements.txt
+#
+# This file covers ALL dependencies for both network_tracer.py (the core
+# trace engine) and tracer_api/ (the FastAPI web layer).
+
+# ── Web framework ──────────────────────────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic-settings>=2.2.0
+
+# ── HTTP client (RESTCONF transport + pynetbox HTTP layer) ─────────────────────
+requests>=2.31.0
+
+# ── SSH / CLI automation for Cisco IOS, IOS-XE, NX-OS ────────────────────────
+netmiko>=4.3.0
+
+# ── TextFSM templates for Netmiko structured CLI output ───────────────────────
+ntc-templates>=5.0.0
+
+# ── NETCONF client ────────────────────────────────────────────────────────────
+ncclient>=0.6.15
+
+# ── XML ↔ dict conversion for NETCONF responses ───────────────────────────────
+xmltodict>=0.13.0
+
+# ── NetBox REST API client ────────────────────────────────────────────────────
+pynetbox>=7.3.0
+
+# ── Optional: memory monitoring ───────────────────────────────────────────────
+psutil>=5.9.0
+
+# ── HashiCorp Vault (required when TRACER_VAULT_ADDR is configured) ───────────
+hvac>=2.1.0
+
+# ── Optional: Genie / pyATS structured CLI parsing ────────────────────────────
+# Uncomment ONE of the following to enable structured CLI output:
+# pyats[full]>=23.0
+# genie>=23.0

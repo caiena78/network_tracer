@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  # ── Backend API ────────────────────────────────────────────────────────────
+  tracer-api:
+    build:
+      context: .
+      dockerfile: tracer_api/Dockerfile
+    container_name: tracer-api
+    restart: unless-stopped
+    env_file:
+      - .env          # copy tracer_api/.env.example to .env and fill in values
+    environment:
+      TRACER_HOST: "0.0.0.0"
+      TRACER_PORT: "8000"
+      TRACER_CORS_ORIGINS: "http://localhost,http://localhost:80,http://tracer-frontend"
+      TRACER_HISTORY_DB_PATH: "/data/trace_history.db"
+    volumes:
+      - tracer-data:/data          # persistent SQLite history DB
+    networks:
+      - tracer-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── Frontend ───────────────────────────────────────────────────────────────
+  tracer-frontend:
+    build:
+      context: tracer_frontend
+      dockerfile: Dockerfile
+    container_name: tracer-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"           # change host port if 80 is taken
+    networks:
+      - tracer-net
+    depends_on:
+      tracer-api:
+        condition: service_healthy
+
+volumes:
+  tracer-data:
+
+networks:
+  tracer-net:
+    driver: bridge

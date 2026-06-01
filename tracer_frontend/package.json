@@ -1,0 +1,28 @@
+{
+  "name": "tracer-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview --port 4173"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "dagre": "^0.8.5",
+    "html2canvas": "^1.4.1",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "reactflow": "^11.11.4",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/dagre": "^0.7.51",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^6.0.2",
+    "typescript": "^5.6.3",
+    "vite": "^8.0.14"
+  }
+}
