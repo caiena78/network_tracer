@@ -222,6 +222,10 @@ def query_by_ip(ip: str, timeout: int = 15) -> Dict[str, Any]:
             "or add ORDR_USER to the Vault secret."
         )
 
+    # Build the full endpoint URL: base URL from Vault + /Devices
+    base_url     = creds["url"].rstrip("/")
+    endpoint_url = f"{base_url}/Devices"
+
     params: list = [
         ("ip",         ip.strip()),
         ("tenantGuid", creds["tenant_guid"]),
@@ -229,9 +233,11 @@ def query_by_ip(ip: str, timeout: int = 15) -> Dict[str, Any]:
     headers = {"Accept": "application/json"}
 
     full_url = requests.Request(
-        "GET", creds["url"], params=params
+        "GET", endpoint_url, params=params
     ).prepare().url
 
+    _dbg(f"  Base URL     = {base_url}")
+    _dbg(f"  Endpoint URL = {endpoint_url}")
     _dbg(f"  Request URL  = {full_url}")
     _dbg(f"  Auth user    = {creds['user']}")
     _dbg(f"  verify SSL   = False")
@@ -240,7 +246,7 @@ def query_by_ip(ip: str, timeout: int = 15) -> Dict[str, Any]:
 
     try:
         resp = requests.get(
-            creds["url"],
+            endpoint_url,
             params   = params,
             headers  = headers,
             auth     = (creds["user"], creds["password"]),
