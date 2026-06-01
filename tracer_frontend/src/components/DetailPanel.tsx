@@ -1,8 +1,67 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, ExternalLink, RefreshCw } from 'lucide-react';
 import type { SelectedElement, NodeData, EdgeData, StackMember } from '../types/trace';
 import { useTraceStore } from '../store/traceStore';
 import { fetchInterfaceDetail } from '../api/client';
+
+// ---------------------------------------------------------------------------
+// Resize hook — drag the LEFT edge of a right-side panel
+// ---------------------------------------------------------------------------
+
+const PANEL_MIN     = 240;
+const PANEL_MAX     = 800;
+const PANEL_DEFAULT = 300;
+const PANEL_STORAGE = 'tracer-detail-panel-width';
+
+function usePanelResize() {
+  const [width, setWidth] = useState<number>(() => {
+    try {
+      const s = localStorage.getItem(PANEL_STORAGE);
+      if (s) { const n = parseInt(s, 10); if (n >= PANEL_MIN && n <= PANEL_MAX) return n; }
+    } catch { /* ignore */ }
+    return PANEL_DEFAULT;
+  });
+
+  const isResizing  = useRef(false);
+  const startX      = useRef(0);
+  const startWidth  = useRef(0);
+  const latestWidth = useRef(width);
+  useEffect(() => { latestWidth.current = width; }, [width]);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizing.current = true;
+    startX.current     = e.clientX;
+    startWidth.current = latestWidth.current;
+    document.body.style.cursor     = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+      // Moving the mouse LEFT (negative delta) widens the panel
+      const delta    = e.clientX - startX.current;
+      const newWidth = Math.min(Math.max(startWidth.current - delta, PANEL_MIN), PANEL_MAX);
+      setWidth(newWidth);
+    };
+    const onUp = () => {
+      if (!isResizing.current) return;
+      isResizing.current             = false;
+      document.body.style.cursor     = '';
+      document.body.style.userSelect = '';
+      try { localStorage.setItem(PANEL_STORAGE, String(latestWidth.current)); } catch { /* ignore */ }
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup',   onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup',   onUp);
+    };
+  }, []);
+
+  return { width, onMouseDown };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -340,6 +399,7 @@ function EdgeDetail({ data }: { data: EdgeData }) {
 export default function DetailPanel() {
   const selectedElement    = useTraceStore((s) => s.selectedElement);
   const setSelectedElement = useTraceStore((s) => s.setSelectedElement);
+  const { width, onMouseDown: startResize } = usePanelResize();
 
   if (!selectedElement) return null;
 
@@ -351,15 +411,36 @@ export default function DetailPanel() {
   return (
     <div
       style={{
-        width:       '300px',
-        flexShrink:   0,
-        borderLeft:  '1px solid var(--border-color)',
-        background:  'var(--bg-panel)',
-        display:     'flex',
-        flexDirection:'column',
-        overflow:    'hidden',
+        width:         width,
+        minWidth:      PANEL_MIN,
+        maxWidth:      PANEL_MAX,
+        flexShrink:    0,
+        borderLeft:    '1px solid var(--border-color)',
+        background:    'var(--bg-panel)',
+        display:       'flex',
+        flexDirection: 'column',
+        overflow:      'hidden',
+        position:      'relative',
       }}
     >
+      {/* Drag handle — left edge */}
+      <div
+        onMouseDown={startResize}
+        title="Drag to resize panel"
+        style={{
+          position:   'absolute',
+          top:        0,
+          left:       0,
+          bottom:     0,
+          width:      '5px',
+          cursor:     'col-resize',
+          zIndex:     30,
+          background: 'transparent',
+          transition: 'background 0.15s',
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-primary)'; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+      />
       {/* Header */}
       <div
         style={{
