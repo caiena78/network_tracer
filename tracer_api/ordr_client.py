@@ -37,7 +37,15 @@ _CRED_TTL:      float                    = 600.0   # seconds
 
 
 def _load_credentials_from_vault() -> Optional[Dict[str, str]]:
-    """Fetch ORDR credentials from Vault KV v2.  Returns None on any failure."""
+    """Fetch ORDR credentials from Vault KV v2.
+
+    Uses the path ``settings.ordr_vault_path`` when set; otherwise falls back
+    to ``settings.vault_path`` (the same secret that holds the network device
+    credentials).  All keys in the raw secret are read so ORDR_URL etc. are
+    available even when they share a path with ``user``/``password``.
+
+    Returns None on any failure so the caller can fall back to env vars.
+    """
     try:
         import hvac
         import hvac.exceptions
@@ -50,9 +58,12 @@ def _load_credentials_from_vault() -> Optional[Dict[str, str]]:
     if not settings.vault_addr:
         return None
 
+    # If a dedicated ORDR path is set, use it; otherwise use the main credentials path.
+    vault_path = settings.ordr_vault_path.strip() or settings.vault_path
+
     log.debug(
         "Loading ORDR credentials from Vault %s / %s / %s",
-        settings.vault_addr, settings.vault_mount, settings.ordr_vault_path,
+        settings.vault_addr, settings.vault_mount, vault_path,
     )
 
     try:
@@ -64,26 +75,29 @@ def _load_credentials_from_vault() -> Optional[Dict[str, str]]:
 
         resp = client.secrets.kv.v2.read_secret_version(
             mount_point              = settings.vault_mount,
-            path                     = settings.ordr_vault_path,
+            path                     = vault_path,
             raise_on_deleted_version = True,
         )
         raw: dict = resp.get("data", {}).get("data", {})
 
+        # The ORDR keys may be stored in any case variant; try both.
         creds = {
-            "url":         str(raw.get("ORDR_URL",         "") or ""),
-            "tenant_guid": str(raw.get("ORDR_TENANTGUID",  "") or ""),
-            "user":        str(raw.get("ORDR_USER",         "") or ""),
-            "password":    str(raw.get("ORDR_PASSWORD",     "") or ""),
+            "url":         str(raw.get("ORDR_URL")         or raw.get("ordr_url",         "") or ""),
+            "tenant_guid": str(raw.get("ORDR_TENANTGUID")  or raw.get("ordr_tenantguid",  "") or ""),
+            "user":        str(raw.get("ORDR_USER")         or raw.get("ordr_user",         "") or ""),
+            "password":    str(raw.get("ORDR_PASSWORD")     or raw.get("ordr_password",     "") or ""),
         }
 
         if not creds["url"] or not creds["user"]:
             log.warning(
-                "ORDR Vault secret at '%s/%s' is missing ORDR_URL or ORDR_USER",
-                settings.vault_mount, settings.ordr_vault_path,
+                "Vault secret at '%s/%s' does not contain ORDR_URL / ORDR_USER — "
+                "found keys: %s",
+                settings.vault_mount, vault_path,
+                ", ".join(sorted(raw.keys())),
             )
             return None
 
-        log.info("ORDR credentials loaded from Vault")
+        log.info("ORDR credentials loaded from Vault path '%s'", vault_path)
         return creds
 
     except Exception as exc:

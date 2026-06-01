@@ -79,7 +79,11 @@ class Settings(BaseSettings):
     # The Vault secret at ordr_vault_path must contain:
     #   ORDR_URL, ORDR_TENANTGUID, ORDR_USER, ORDR_PASSWORD
     # Direct env-var overrides (used when Vault is not configured):
-    ordr_vault_path: str = "ordr/credentials"   # KV v2 path for ORDR secrets
+    # KV v2 path for ORDR secrets.
+    # Leave blank (default) to read from the same Vault secret as the network
+    # device credentials (TRACER_VAULT_PATH).  Set to a different path only when
+    # ORDR credentials live in a separate Vault secret.
+    ordr_vault_path: str = ""
     ordr_url:         str = ""
     ordr_tenant_guid: str = ""
     ordr_user:        str = ""
