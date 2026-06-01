@@ -9,7 +9,7 @@ import {
   HelpCircle,
   ExternalLink,
 } from 'lucide-react';
-import type { NodeData } from '../types/trace';
+import type { NodeData, StackMember } from '../types/trace';
 import { useTraceStore } from '../store/traceStore';
 
 // ---------------------------------------------------------------------------
@@ -106,6 +106,39 @@ function TooltipCard({ data }: { data: NodeData }) {
       {data.uptime && (
         <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
           Uptime: {String(data.uptime)}
+        </div>
+      )}
+      {/* Stack-member table */}
+      {Array.isArray(data.stack_members) && (data.stack_members as StackMember[]).length > 0 && (
+        <div style={{ marginTop: '6px', borderTop: '1px solid var(--border-color)', paddingTop: '6px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.07em', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>
+            Stack Members
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+            <thead>
+              <tr>
+                {['SW', 'Model', 'Version', 'Role', 'Uptime'].map((h) => (
+                  <th key={h} style={{ textAlign: 'left', color: 'var(--text-muted)', paddingRight: '6px', fontWeight: 600, paddingBottom: '2px' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(data.stack_members as StackMember[]).map((mb) => (
+                <tr key={mb.switch_num}>
+                  <td style={{ paddingRight: '6px' }}>{mb.switch_num}</td>
+                  <td style={{ paddingRight: '6px', whiteSpace: 'nowrap' }}>{mb.model ?? '—'}</td>
+                  <td style={{ paddingRight: '6px', whiteSpace: 'nowrap' }}>{mb.os_version ?? '—'}</td>
+                  <td style={{
+                    paddingRight: '6px',
+                    color: mb.role?.toUpperCase().includes('ACTIVE') ? 'var(--color-success)' : 'var(--text-muted)',
+                  }}>
+                    {mb.role ?? '—'}
+                  </td>
+                  <td style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{mb.uptime ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
       {data.netbox_url && (

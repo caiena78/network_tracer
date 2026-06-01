@@ -90,8 +90,9 @@ function InnerCanvas({ graph, containerRef }: InnerCanvasProps) {
           ...node,
           data: {
             ...nd,
-            os_version: update.data.os_version ?? nd.os_version,
-            uptime:     update.data.uptime     ?? nd.uptime,
+            os_version:    update.data.os_version    ?? nd.os_version,
+            uptime:        update.data.uptime        ?? nd.uptime,
+            stack_members: update.data.stack_members ?? nd.stack_members,
           },
         };
       }),

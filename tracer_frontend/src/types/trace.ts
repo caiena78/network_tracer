@@ -22,8 +22,9 @@ export interface InterfaceUpdate {
 export interface DeviceUpdate {
   device: string;
   data: {
-    os_version?: string | null;
-    uptime?:     string | null;
+    os_version?:    string | null;
+    uptime?:        string | null;
+    stack_members?: StackMember[];
   };
 }
 
@@ -96,19 +97,30 @@ export interface FlatPath {
 // Graph (Cytoscape.js-compatible, returned by /graph endpoint)
 // ---------------------------------------------------------------------------
 
+export interface StackMember {
+  switch_num:  number;
+  uptime?:     string;
+  model?:      string;
+  serial?:     string;
+  os_version?: string;
+  role?:       string;
+  mac?:        string;
+}
+
 export interface NodeData {
-  id:           string;
-  label:        string;
-  node_type:    'switch' | 'router' | 'gateway' | 'src' | 'dst' | 'unknown';
-  layer:        'L2' | 'L3' | 'mixed';
-  ip?:          string;
-  state?:       string;
-  description?: string;
-  speed?:       string;
-  duplex?:      string;
-  netbox_url?:  string;
-  os_version?:  string;
-  uptime?:      string;
+  id:            string;
+  label:         string;
+  node_type:     'switch' | 'router' | 'gateway' | 'src' | 'dst' | 'unknown';
+  layer:         'L2' | 'L3' | 'mixed';
+  ip?:           string;
+  state?:        string;
+  description?:  string;
+  speed?:        string;
+  duplex?:       string;
+  netbox_url?:   string;
+  os_version?:   string;
+  uptime?:       string;
+  stack_members?: StackMember[];
   [key: string]: unknown;
 }
 

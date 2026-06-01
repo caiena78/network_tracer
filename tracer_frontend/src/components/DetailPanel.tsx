@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, ExternalLink, RefreshCw } from 'lucide-react';
-import type { SelectedElement, NodeData, EdgeData } from '../types/trace';
+import type { SelectedElement, NodeData, EdgeData, StackMember } from '../types/trace';
 import { useTraceStore } from '../store/traceStore';
 import { fetchInterfaceDetail } from '../api/client';
 
@@ -48,6 +48,7 @@ function FetchButton({
 }) {
   const ip          = deviceIpMap[device];
   const cacheResult = useTraceStore((s) => s.cacheInterfaceDetail);
+  const hasCache    = useTraceStore((s) => !!s.interfaceDetailCache[`${device}/${iface}`]);
   const [busy,  setBusy]  = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,10 +58,11 @@ function FetchButton({
     setBusy(true);
     setError(null);
     try {
+      // Always fetch live data from the device — never skip due to cached data
       const result = await fetchInterfaceDetail(ip, iface);
-      // Persist in store — shared with the tooltip and persists on re-hover
+      // Overwrite cache with the fresh result
       cacheResult(device, iface, result);
-      // Also update the diagram edge chip
+      // Also update the diagram edge chip counters
       useTraceStore.setState((s) => ({
         pendingEnrichments: [
           ...s.pendingEnrichments,
@@ -74,6 +76,12 @@ function FetchButton({
     }
   };
 
+  const btnLabel = busy
+    ? 'Fetching live data…'
+    : hasCache
+    ? `Refresh — ${device} ${iface}`
+    : `Get interface details — ${device} ${iface}`;
+
   return (
     <div style={{ marginTop: '6px' }}>
       <button
@@ -83,7 +91,7 @@ function FetchButton({
         style={{ fontSize: '12px', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: 'center' }}
       >
         <RefreshCw size={12} className={busy ? 'spin' : ''} />
-        {busy ? 'Fetching…' : `Get interface details — ${device} ${iface}`}
+        {btnLabel}
       </button>
       {error && (
         <div style={{ fontSize: '11px', color: 'var(--color-error)', marginTop: '4px' }}>{error}</div>
@@ -130,6 +138,10 @@ function RawBlock({ title, text }: { title: string; text: string }) {
 // ---------------------------------------------------------------------------
 
 function NodeDetail({ data }: { data: NodeData }) {
+  const members = Array.isArray(data.stack_members)
+    ? (data.stack_members as StackMember[])
+    : [];
+
   return (
     <>
       <Section title="Device">
@@ -148,6 +160,49 @@ function NodeDetail({ data }: { data: NodeData }) {
           </tbody>
         </table>
       </Section>
+
+      {/* Stack member details */}
+      {members.length > 0 && (
+        <Section title={`Stack Members (${members.length})`}>
+          {members.map((mb) => (
+            <div
+              key={mb.switch_num}
+              style={{
+                marginBottom: '8px',
+                padding: '8px',
+                background: 'var(--bg-code)',
+                borderRadius: '4px',
+                borderLeft: `3px solid ${mb.role?.toUpperCase().includes('ACTIVE') ? 'var(--color-success)' : 'var(--border-color)'}`,
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: '12px', marginBottom: '4px', color: 'var(--text-primary)' }}>
+                Switch {mb.switch_num}
+                {mb.role && (
+                  <span style={{
+                    marginLeft: '8px',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    color: mb.role.toUpperCase().includes('ACTIVE') ? 'var(--color-success)' : 'var(--text-muted)',
+                    textTransform: 'uppercase',
+                  }}>
+                    {mb.role}
+                  </span>
+                )}
+              </div>
+              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                <tbody>
+                  {mb.model      && <Row label="Model"   value={mb.model} />}
+                  {mb.os_version && <Row label="Version" value={mb.os_version} />}
+                  {mb.uptime     && <Row label="Uptime"  value={mb.uptime} />}
+                  {mb.serial     && <Row label="Serial"  value={mb.serial} />}
+                  {mb.mac        && <Row label="MAC"     value={mb.mac} />}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </Section>
+      )}
+
       {data.netbox_url && (
         <a href={data.netbox_url as string} target="_blank" rel="noopener noreferrer" className="netbox-link">
           <ExternalLink size={12} />

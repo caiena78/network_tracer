@@ -224,13 +224,19 @@ function EdgeTooltip({ data, x, y, deviceIpMap, onMouseEnter, onMouseLeave }: Ed
             <div style={{ fontSize: '11px', color: 'var(--color-error)', marginBottom: '4px' }}>{fetchError}</div>
           )}
           {([
-            { dev: data.dst_device, iface: data.dst_interface, label: 'dst' },
-            { dev: data.src_device, iface: data.src_interface, label: 'src' },
-          ] as Array<{ dev?: string; iface?: string | null; label: string }>)
+            { dev: data.dst_device, iface: data.dst_interface },
+            { dev: data.src_device, iface: data.src_interface },
+          ] as Array<{ dev?: string; iface?: string | null }>)
             .filter((s) => s.dev && s.iface && deviceIpMap[s.dev!])
             .map((s) => {
-              const key = `${s.dev}/${s.iface}`;
-              const busy = fetching === key;
+              const key      = `${s.dev}/${s.iface}`;
+              const busy     = fetching === key;
+              const hasCache = !!cache[key];
+              const btnLabel = busy
+                ? 'Fetching live data…'
+                : hasCache
+                ? `Refresh — ${s.dev} ${s.iface}`
+                : `Get interface details — ${s.dev} ${s.iface}`;
               return (
                 <button
                   key={key}
@@ -240,7 +246,7 @@ function EdgeTooltip({ data, x, y, deviceIpMap, onMouseEnter, onMouseLeave }: Ed
                   style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '5px', justifyContent: 'center' }}
                 >
                   <RefreshCw size={11} className={busy ? 'spin' : ''} />
-                  {busy ? 'Fetching…' : `Get interface details — ${s.dev} ${s.iface}`}
+                  {btnLabel}
                 </button>
               );
             })}

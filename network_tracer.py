@@ -1195,17 +1195,100 @@ def get_interface_detail(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _parse_stack_members(output: str) -> List[Dict]:
+    """Parse per-member info from a Cisco IOS StackWise ``show version`` output.
+
+    Handles the common IOS/IOS-XE format where each stack member is introduced
+    by a ``Switch <N>`` line followed by a separator (dashes or blank line).
+
+    Example section::
+
+        Switch 01
+        ---------
+        Switch uptime                 : 28 weeks, 1 day, 14 hours, 30 minutes
+        Model number                  : WS-C3750X-48PF-S
+        System serial number          : FOC1534Y1Z6
+        Current Software state        : ACTIVE
+        Image ver                     : 12.2(55)SE9
+
+    Returns an empty list when no stack sections are detected.
+    """
+    members: List[Dict] = []
+
+    # Locate every "Switch N" header (followed by optional spaces/dashes on same
+    # line, or a separator line immediately below).
+    header_re = re.compile(
+        r"^[ \t]*Switch\s+(\d+)[ \t]*(?:[-]+)?[ \t]*$",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    matches = list(header_re.finditer(output))
+    if not matches:
+        return []
+
+    for idx, match in enumerate(matches):
+        num   = int(match.group(1))
+        start = match.start()
+        end   = matches[idx + 1].start() if idx + 1 < len(matches) else len(output)
+        sec   = output[start:end]
+
+        member: Dict = {"switch_num": num}
+
+        # Uptime for this member
+        m = re.search(r"Switch uptime\s*[:=]\s*(.+)", sec, re.IGNORECASE)
+        if not m:
+            m = re.search(r"Uptime in current state\s*[:=]\s*(.+)", sec, re.IGNORECASE)
+        if m:
+            member["uptime"] = m.group(1).strip().rstrip(".")
+
+        # Model number
+        m = re.search(r"Model number\s*[:=]\s*(\S+)", sec, re.IGNORECASE)
+        if m:
+            member["model"] = m.group(1).strip().rstrip(",")
+
+        # System serial number
+        m = re.search(r"System serial number\s*[:=]\s*(\S+)", sec, re.IGNORECASE)
+        if m:
+            member["serial"] = m.group(1).strip().rstrip(",")
+
+        # Software version for this member
+        m = re.search(r"Image ver(?:sion)?\s*[:=]\s*(\S+)", sec, re.IGNORECASE)
+        if not m:
+            m = re.search(r"Software version\s*[:=]\s*(\S+)", sec, re.IGNORECASE)
+        if m:
+            member["os_version"] = m.group(1).strip().rstrip(",")
+
+        # Role (ACTIVE / MEMBER / STANDBY)
+        m = re.search(
+            r"Current Software state\s*[:=]\s*(.+?)(?:\r?\n|$)",
+            sec, re.IGNORECASE,
+        )
+        if m:
+            member["role"] = m.group(1).strip()
+
+        # Base MAC
+        m = re.search(r"Base ethernet MAC Address\s*[:=]\s*(\S+)", sec, re.IGNORECASE)
+        if m:
+            member["mac"] = m.group(1).strip().rstrip(",")
+
+        members.append(member)
+
+    return members
+
+
 def get_device_version(
     client:      CiscoDeviceClient,
     device_type: str,
 ) -> Dict:
-    """Run ``show version`` and return parsed OS version + system uptime.
+    """Run ``show version`` and return OS version, uptime, and stack-member info.
 
-    Returned keys (may be None when not parseable):
-      os_version   — short version string, e.g. ``"15.2(4)E9"`` or ``"9.3(11)"``
-      uptime       — human-readable uptime string from the device
+    Returned keys:
+      os_version    — overall version string, e.g. ``"15.2(4)E9"``
+      uptime        — system uptime from the first/active member
+      stack_members — list of per-member dicts (empty when not a stack)
+                      Each member dict has: switch_num, uptime, model, serial,
+                      os_version, role, mac  (all optional)
     """
-    result: Dict = {"os_version": None, "uptime": None}
+    result: Dict = {"os_version": None, "uptime": None, "stack_members": []}
 
     try:
         output = _send_cmd(client, "show version")
@@ -1224,9 +1307,6 @@ def get_device_version(
         result["uptime"] = m.group(1).strip().rstrip(".")
 
     # ── OS version ────────────────────────────────────────────────────────────
-    # IOS/IOS-XE:  'Cisco IOS Software, ..., Version 15.2(4)E9, ...'
-    # IOS-XE:      'Cisco IOS XE Software, Version 17.12.01, ...'
-    # NX-OS:       'NXOS: version 9.3(11)'  or  'system:    version 9.3(11)'
     for pattern in (
         r"(?:Cisco IOS(?: XE)? Software[^,]*,\s*Version)\s+(\S+)",
         r"NXOS:\s*version\s+(\S+)",
@@ -1235,10 +1315,24 @@ def get_device_version(
     ):
         m = re.search(pattern, output, re.IGNORECASE)
         if m:
-            # Some patterns have two groups; use the last non-None one.
             groups = [g for g in m.groups() if g]
             result["os_version"] = groups[-1].rstrip(",") if groups else None
             break
+
+    # ── Stack members (Cisco StackWise / 3750 / 9300 stacks) ─────────────────
+    stack_members = _parse_stack_members(output)
+    if stack_members:
+        result["stack_members"] = stack_members
+        # If a member-level version was found, prefer it as the global version
+        for mb in stack_members:
+            if mb.get("os_version"):
+                result["os_version"] = result["os_version"] or mb["os_version"]
+                break
+        # Use the first/active member's uptime as global uptime when available
+        for mb in stack_members:
+            if mb.get("uptime"):
+                result["uptime"] = result["uptime"] or mb["uptime"]
+                break
 
     return result
 
