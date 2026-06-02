@@ -3283,13 +3283,17 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
             hops.append({
                 "layer":     "L3",
                 "device":    hostname,
+                "device_ip": hop.get("connect_ip") or hop.get("ip"),
                 "interface": ingress or "—",
                 "details":   {"note": note},
             })
             # L2 fallback trace stored when the next-hop was unreachable —
             # emit as L2 hops so the JSON path still shows the egress port.
             l2t = hop.get("l2_trace")
-            l2_dev = hop.get("l2_trace_device") or hostname
+            l2_dev    = hop.get("l2_trace_device") or hostname
+            # The L2-fallback device is the PREVIOUS successfully-reached hop,
+            # so its SSH IP is that hop's connect_ip (passed from prev_hop).
+            l2_dev_ip = hop.get("l2_trace_device_ip") or hop.get("connect_ip") or hop.get("ip")
             if l2t and not l2t.get("error"):
                 vlan_raw = l2t.get("vlan")
                 l2_det: Dict = {}
@@ -3309,6 +3313,7 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
                 hops.append({
                     "layer":     "L2",
                     "device":    l2_dev,
+                    "device_ip": l2_dev_ip,
                     "interface": l2t.get("port") or "—",
                     "details":   l2_det,
                 })
@@ -3322,6 +3327,7 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
                     hops.append({
                         "layer":     "L2",
                         "device":    cdp["hostname"],
+                        "device_ip": cdp.get("ip"),   # CDP management IP
                         "interface": cdp.get("port") or "—",
                         "details":   cdp_det,
                     })
@@ -3449,6 +3455,7 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
             hops.append({
                 "layer":     "L2",
                 "device":    hostname,
+                "device_ip": hop.get("connect_ip") or hop.get("ip"),
                 "interface": l2t.get("port") or "—",
                 "details":   l2_det,
             })
@@ -3463,6 +3470,7 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
                 hops.append({
                     "layer":     "L2",
                     "device":    cdp["hostname"],
+                    "device_ip": cdp.get("ip"),   # CDP management IP
                     "interface": cdp.get("port") or "—",
                     "details":   cdp_det,
                 })
