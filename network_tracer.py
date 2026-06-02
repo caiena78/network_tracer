@@ -962,6 +962,8 @@ def _parse_interface_detail_nxos(output: str) -> Dict:
         "description":      None,
         "speed":            None,
         "duplex":           None,
+        "ip_address":       None,
+        "port_mode":        None,
         "rx_runts":         None,
         "rx_giants":        None,
         "rx_crc":           None,
@@ -998,6 +1000,20 @@ def _parse_interface_detail_nxos(output: str) -> Dict:
     m = re.search(r"\b(\d+(?:\.\d+)?\s*[GMK]b/s)\b", output, re.IGNORECASE)
     if m:
         result["speed"] = m.group(1).strip()
+
+    # ── Port mode (NX-OS explicitly states this) ──────────────────────────────
+    # "Port mode is routed" / "Port mode is trunk" / "Port mode is access"
+    m = re.search(r"Port\s+mode\s+is\s+(\w+)", output, re.IGNORECASE)
+    if m:
+        result["port_mode"] = m.group(1).lower()
+
+    # ── IP address (routed port) ───────────────────────────────────────────────
+    # "Internet Address is 172.18.0.145/31"
+    m = re.search(r"Internet\s+Address\s+is\s+(\d+\.\d+\.\d+\.\d+/\d+)", output, re.IGNORECASE)
+    if m:
+        result["ip_address"] = m.group(1)
+        if not result["port_mode"]:
+            result["port_mode"] = "routed"
 
     # ── RX / TX sections ─────────────────────────────────────────────────────
     # NX-OS uses "  RX\n" and "  TX\n" as section headers.
@@ -1044,6 +1060,8 @@ def _parse_interface_detail_ios(output: str) -> Dict:
         "description":           None,
         "speed":                 None,
         "duplex":                None,
+        "ip_address":            None,
+        "port_mode":             None,
         "runts":                 None,
         "giants":                None,
         "crc":                   None,
@@ -1074,6 +1092,13 @@ def _parse_interface_detail_ios(output: str) -> Dict:
     m = re.search(r"Description:\s*(.+)", output, re.IGNORECASE)
     if m:
         result["description"] = m.group(1).strip()
+
+    # ── IP address (routed port) ──────────────────────────────────────────────
+    # "Internet address is 10.1.1.1/24" → port is routed
+    m = re.search(r"Internet\s+address\s+is\s+(\d+\.\d+\.\d+\.\d+/\d+)", output, re.IGNORECASE)
+    if m:
+        result["ip_address"] = m.group(1)
+        result["port_mode"]  = "routed"
 
     # ── Duplex + Speed ────────────────────────────────────────────────────────
     # IOS always puts duplex and speed on the SAME line:
@@ -1184,6 +1209,27 @@ def get_interface_detail(
         result = _parse_interface_detail_nxos(output)
     else:
         result = _parse_interface_detail_ios(output)
+
+    # ── Switchport mode for IOS L2 ports ─────────────────────────────────────
+    # IOS doesn't show trunk/access in "show interface" output.
+    # If no IP was found (not a routed port) and this isn't NX-OS, run
+    # "show interfaces <name> switchport" to detect trunk vs access.
+    if not result.get("ip_address") and not result.get("port_mode"):
+        try:
+            sw_out = _send_cmd(client, f"show interfaces {interface_name} switchport")
+            if sw_out and "switchport: enabled" in sw_out.lower():
+                m = re.search(r"Administrative Mode:\s*(\S+)", sw_out, re.IGNORECASE)
+                if m:
+                    mode = m.group(1).lower().strip()
+                    # Normalise common IOS mode names
+                    if "trunk" in mode:
+                        result["port_mode"] = "trunk"
+                    elif "access" in mode:
+                        result["port_mode"] = "access"
+                    else:
+                        result["port_mode"] = mode
+        except Exception:
+            pass  # switchport command not supported on this interface type
 
     # Always attach the full raw output so the frontend can show it verbatim.
     result["raw_output"] = output.strip()

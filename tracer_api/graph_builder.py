@@ -106,6 +106,8 @@ _IFACE_COUNTER_FIELDS = (
     "description",
     "speed",
     "duplex",
+    "ip_address",
+    "port_mode",
     "vlan",
     "runts",
     "giants",

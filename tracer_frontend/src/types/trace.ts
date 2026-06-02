@@ -162,6 +162,8 @@ export interface EdgeData {
   src_speed?:                  string;
   src_duplex?:                 string;
   src_description?:            string;
+  src_ip_address?:             string;
+  src_port_mode?:              string;
   dst_runts?:                  number;
   dst_giants?:                 number;
   dst_crc?:                    number;
@@ -176,6 +178,8 @@ export interface EdgeData {
   dst_speed?:                  string;
   dst_duplex?:                 string;
   dst_description?:            string;
+  dst_ip_address?:             string;
+  dst_port_mode?:              string;
   // L3 routing fields
   prefix?:            string;
   next_hop_ip?:       string;

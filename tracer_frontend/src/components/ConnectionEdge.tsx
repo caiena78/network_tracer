@@ -355,6 +355,8 @@ function DetailsTab({ data }: { data: EdgeData }) {
         <Section title="Source">
           <Row label="Device"    value={data.src_device} />
           <Row label="Interface" value={data.src_interface} />
+          <Row label="Mode"      value={data.src_port_mode?.toUpperCase()} />
+          <Row label="IP"        value={data.src_ip_address} />
           {data.src_interface_netbox_url && (
             <NBLink href={data.src_interface_netbox_url} label="Open in NetBox" />
           )}
@@ -364,6 +366,8 @@ function DetailsTab({ data }: { data: EdgeData }) {
       <Section title="Switch Port">
         <Row label="Device"      value={data.dst_device} />
         <Row label="Interface"   value={data.dst_interface} />
+        <Row label="Mode"        value={data.dst_port_mode?.toUpperCase()} />
+        <Row label="IP"          value={data.dst_ip_address} />
         <Row label="Description" value={data.description as string | undefined} />
         <Row label="Speed"       value={data.speed as string | undefined} />
         <Row label="Duplex"      value={data.duplex  as string | undefined} />
