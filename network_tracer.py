@@ -3302,9 +3302,15 @@ def iter_interface_enrichment(
             _, ifaces = device_map[d_ip]
             if iface not in ifaces:
                 ifaces.append(iface)
-            eg = (hop.get("details") or {}).get("egress_interface")
+            det = hop.get("details") or {}
+            eg = det.get("egress_interface")
             if eg and eg not in ifaces:
                 ifaces.append(eg)
+            # SVI gateway: the SVI name is stored in details["svi_interface"]
+            # so that "show interface VlanX" is run and appears in the node panel.
+            svi = det.get("svi_interface")
+            if svi and svi not in ifaces:
+                ifaces.append(svi)
 
     if not device_map:
         return
@@ -3557,42 +3563,34 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
             # so its SSH IP is that hop's connect_ip (passed from prev_hop).
             l2_dev_ip = hop.get("l2_trace_device_ip") or hop.get("connect_ip") or hop.get("ip")
             if l2t and not l2t.get("error"):
-                vlan_raw = l2t.get("vlan")
-                l2_det: Dict = {}
-                if l2t.get("mac"):
-                    l2_det["mac"] = l2t["mac"]
-                if vlan_raw is not None:
-                    try:
-                        l2_det["vlan"] = int(vlan_raw)
-                    except (ValueError, TypeError):
-                        l2_det["vlan"] = vlan_raw
-                if l2t.get("is_svi"):
-                    l2_det["is_svi"] = True
-                mbrs = l2t.get("portchannel_members")
-                if mbrs:
-                    l2_det["portchannel_members"] = mbrs
-                _fb_iface_det = l2t.get("interface_detail") or {}
-                if _fb_iface_det:
-                    l2_det.update(_fb_iface_det)
-                hops.append({
-                    "layer":     "L2",
-                    "device":    l2_dev,
-                    "device_ip": l2_dev_ip,
-                    "interface": l2t.get("port") or "—",
-                    "details":   l2_det,
-                })
                 svi_trunks = l2t.get("svi_trunk_neighbors") or []
-                if svi_trunks:
+                svi_iface  = l2t.get("port") if l2t.get("is_svi") else None
+
+                if svi_iface and svi_trunks:
+                    # SVI gateway fallback — same rule as the normal SVI case:
+                    # the SVI is virtual and must not be an edge.
+                    vlan_raw = l2t.get("vlan")
+                    vlan_val = None
+                    if vlan_raw is not None:
+                        try:
+                            vlan_val = int(vlan_raw)
+                        except (ValueError, TypeError):
+                            vlan_val = vlan_raw
+
                     for trunk_entry in svi_trunks:
-                        trunk_iface = trunk_entry.get("interface")
-                        if trunk_iface:
-                            hops.append({
-                                "layer":     "L2",
-                                "device":    l2_dev,
-                                "device_ip": l2_dev_ip,
-                                "interface": trunk_iface,
-                                "details":   {"egress_interface": trunk_iface},
-                            })
+                        trunk_port = trunk_entry.get("interface")
+                        if not trunk_port:
+                            continue
+                        trunk_det: Dict = {"svi_interface": svi_iface, "egress_interface": trunk_port}
+                        if vlan_val is not None:
+                            trunk_det["vlan"] = vlan_val
+                        hops.append({
+                            "layer":     "L2",
+                            "device":    l2_dev,
+                            "device_ip": l2_dev_ip,
+                            "interface": trunk_port,
+                            "details":   trunk_det,
+                        })
                         cdp = trunk_entry.get("cdp_neighbor")
                         if cdp and cdp.get("hostname"):
                             cdp_det = {k: v for k, v in {
@@ -3608,6 +3606,29 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
                                 "details":   cdp_det,
                             })
                 else:
+                    # Normal host fallback
+                    vlan_raw = l2t.get("vlan")
+                    l2_det: Dict = {}
+                    if l2t.get("mac"):
+                        l2_det["mac"] = l2t["mac"]
+                    if vlan_raw is not None:
+                        try:
+                            l2_det["vlan"] = int(vlan_raw)
+                        except (ValueError, TypeError):
+                            l2_det["vlan"] = vlan_raw
+                    mbrs = l2t.get("portchannel_members")
+                    if mbrs:
+                        l2_det["portchannel_members"] = mbrs
+                    _fb_iface_det = l2t.get("interface_detail") or {}
+                    if _fb_iface_det:
+                        l2_det.update(_fb_iface_det)
+                    hops.append({
+                        "layer":     "L2",
+                        "device":    l2_dev,
+                        "device_ip": l2_dev_ip,
+                        "interface": l2t.get("port") or "—",
+                        "details":   l2_det,
+                    })
                     cdp = l2t.get("cdp_neighbor")
                     if cdp and cdp.get("hostname"):
                         cdp_det = {k: v for k, v in {
@@ -3618,7 +3639,7 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
                         hops.append({
                             "layer":     "L2",
                             "device":    cdp["hostname"],
-                            "device_ip": cdp.get("ip"),   # CDP management IP
+                            "device_ip": cdp.get("ip"),
                             "interface": cdp.get("port") or "—",
                             "details":   cdp_det,
                         })
@@ -3726,48 +3747,49 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
         # L2 trace at the final hop (destination subnet is directly connected).
         l2t = hop.get("l2_trace")
         if l2t and not l2t.get("error"):
-            vlan_raw = l2t.get("vlan")
-            l2_det: Dict = {}
-            if l2t.get("mac"):
-                l2_det["mac"] = l2t["mac"]
-            if vlan_raw is not None:
-                try:
-                    l2_det["vlan"] = int(vlan_raw)
-                except (ValueError, TypeError):
-                    l2_det["vlan"] = vlan_raw
-            if l2t.get("is_svi"):
-                l2_det["is_svi"] = True
-            mbrs = l2t.get("portchannel_members")
-            if mbrs:
-                l2_det["portchannel_members"] = mbrs
-            # Merge port interface health/counter detail from the L2 trace.
-            l2_iface_det = l2t.get("interface_detail") or {}
-            if l2_iface_det:
-                l2_det.update(l2_iface_det)
-
-            hops.append({
-                "layer":     "L2",
-                "device":    hostname,
-                "device_ip": hop.get("connect_ip") or hop.get("ip"),
-                "interface": l2t.get("port") or "—",
-                "details":   l2_det,
-            })
-
             svi_trunks = l2t.get("svi_trunk_neighbors") or []
-            if svi_trunks:
-                # SVI gateway — emit each trunk port and its CDP neighbor.
-                # This surfaces the physical inter-switch connections on the
-                # VLAN even though the SVI itself is a virtual interface.
+            svi_iface  = l2t.get("port") if l2t.get("is_svi") else None
+
+            if svi_iface and svi_trunks:
+                # ── SVI gateway destination ───────────────────────────────────
+                # The SVI (e.g. Vlan54) is a virtual interface — it MUST NOT
+                # appear as an edge between two devices.  Instead:
+                #   • the SVI name is stored in details["svi_interface"] on each
+                #     physical trunk-port hop so the UI can show it in the node
+                #     panel and so iter_interface_enrichment runs "show interface
+                #     Vlan54" for that device;
+                #   • the physical trunk port (egress on this device) and the CDP
+                #     remote-port (ingress on the neighbor) form the actual edge.
+                vlan_raw = l2t.get("vlan")
+                vlan_val = None
+                if vlan_raw is not None:
+                    try:
+                        vlan_val = int(vlan_raw)
+                    except (ValueError, TypeError):
+                        vlan_val = vlan_raw
+
                 for trunk_entry in svi_trunks:
-                    trunk_iface = trunk_entry.get("interface")
-                    if trunk_iface:
-                        hops.append({
-                            "layer":     "L2",
-                            "device":    hostname,
-                            "device_ip": hop.get("connect_ip") or hop.get("ip"),
-                            "interface": trunk_iface,
-                            "details":   {"egress_interface": trunk_iface},
-                        })
+                    trunk_port = trunk_entry.get("interface")
+                    if not trunk_port:
+                        continue
+
+                    # Egress hop: physical trunk port on this switch.
+                    # svi_interface → picked up by iter_interface_enrichment
+                    # and shown in the node panel when clicking this device.
+                    trunk_det: Dict = {"svi_interface": svi_iface, "egress_interface": trunk_port}
+                    if vlan_val is not None:
+                        trunk_det["vlan"] = vlan_val
+
+                    hops.append({
+                        "layer":     "L2",
+                        "device":    hostname,
+                        "device_ip": hop.get("connect_ip") or hop.get("ip"),
+                        "interface": trunk_port,
+                        "details":   trunk_det,
+                    })
+
+                    # Ingress hop: remote port on the neighboring device
+                    # (Port ID from "show cdp neighbors <trunk_port> detail").
                     cdp = trunk_entry.get("cdp_neighbor")
                     if cdp and cdp.get("hostname"):
                         cdp_det = {k: v for k, v in {
@@ -3782,7 +3804,33 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
                             "interface": cdp.get("port") or "—",
                             "details":   cdp_det,
                         })
+
             else:
+                # ── Normal host destination ───────────────────────────────────
+                vlan_raw = l2t.get("vlan")
+                l2_det: Dict = {}
+                if l2t.get("mac"):
+                    l2_det["mac"] = l2t["mac"]
+                if vlan_raw is not None:
+                    try:
+                        l2_det["vlan"] = int(vlan_raw)
+                    except (ValueError, TypeError):
+                        l2_det["vlan"] = vlan_raw
+                mbrs = l2t.get("portchannel_members")
+                if mbrs:
+                    l2_det["portchannel_members"] = mbrs
+                l2_iface_det = l2t.get("interface_detail") or {}
+                if l2_iface_det:
+                    l2_det.update(l2_iface_det)
+
+                hops.append({
+                    "layer":     "L2",
+                    "device":    hostname,
+                    "device_ip": hop.get("connect_ip") or hop.get("ip"),
+                    "interface": l2t.get("port") or "—",
+                    "details":   l2_det,
+                })
+
                 cdp = l2t.get("cdp_neighbor")
                 if cdp and cdp.get("hostname"):
                     cdp_det = {k: v for k, v in {
@@ -3793,7 +3841,7 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
                     hops.append({
                         "layer":     "L2",
                         "device":    cdp["hostname"],
-                        "device_ip": cdp.get("ip"),   # CDP management IP
+                        "device_ip": cdp.get("ip"),
                         "interface": cdp.get("port") or "—",
                         "details":   cdp_det,
                     })
