@@ -1429,11 +1429,71 @@ def get_neighbor_info(
     device_type: str,
     interface: str,
 ) -> Optional[Dict[str, str]]:
-    """Return CDP or LLDP neighbor info for *interface*, preferring CDP. Returns None if none found."""
+    """Return the FIRST CDP or LLDP neighbor for *interface*, preferring CDP."""
     cdp = _get_cdp_neighbor(client, device_type, interface)
     if cdp:
         return cdp
     return _get_lldp_neighbor(client, device_type, interface)
+
+
+def _parse_all_cdp_neighbors(output: str) -> List[Dict[str, str]]:
+    """Parse ALL neighbor entries from ``show cdp neighbors <iface> detail`` output.
+
+    The output may contain multiple sections separated by lines of dashes.
+    Each section describes one neighbor.  Returns a list of neighbor dicts with
+    the same keys as ``_get_cdp_neighbor``: neighbor_id, neighbor_ip,
+    remote_port, platform, protocol.
+    """
+    neighbors: List[Dict[str, str]] = []
+    # Split on any line that is purely dashes (IOS uses "---…", NX-OS uses "----…")
+    sections = re.split(r'^-{3,}\s*$', output, flags=re.MULTILINE)
+    for sec in sections:
+        if "Device ID" not in sec and "device id" not in sec.lower():
+            continue
+        info: Dict[str, str] = {"protocol": "CDP"}
+        m = re.search(r"Device ID:\s*(\S+)",                  sec, re.IGNORECASE)
+        if m:
+            info["neighbor_id"] = m.group(1)
+        else:
+            continue
+        m = re.search(r"IP [Aa]ddress:\s*(\S+)",              sec, re.IGNORECASE)
+        if m:
+            info["neighbor_ip"] = m.group(1)
+        m = re.search(r"Management [Aa]ddress.*?IP [Aa]ddress:\s*(\S+)", sec, re.IGNORECASE | re.DOTALL)
+        if m and "neighbor_ip" not in info:
+            info["neighbor_ip"] = m.group(1)
+        m = re.search(r"Port ID \(outgoing port\):\s*(\S+)",  sec, re.IGNORECASE)
+        if m:
+            info["remote_port"] = m.group(1)
+        m = re.search(r"Platform:\s*([^,\r\n]+)",             sec, re.IGNORECASE)
+        if m:
+            info["platform"] = m.group(1).strip()
+        neighbors.append(info)
+    return neighbors
+
+
+def get_all_cdp_neighbors(
+    client:      CiscoDeviceClient,
+    device_type: str,
+    interface:   str,
+) -> List[Dict[str, str]]:
+    """Return ALL CDP neighbors on *interface* as a list.
+
+    Used when a port is a trunk/uplink and multiple devices appear in CDP.
+    Falls back to an empty list on any failure.
+    """
+    if "nxos" in device_type.lower():
+        cmd = f"show cdp neighbors interface {interface} detail"
+    else:
+        cmd = f"show cdp neighbors {interface} detail"
+    try:
+        output = _send_cmd(client, cmd)
+    except Exception as exc:
+        log.debug("get_all_cdp_neighbors(%s): command failed: %s", interface, exc)
+        return []
+    if not output or "device id" not in output.lower():
+        return []
+    return _parse_all_cdp_neighbors(output)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1786,6 +1846,131 @@ def get_bgp_route_detail(
     return result
 
 
+def _lookup_neighbor_for_ip(
+    nb_url:     str,
+    nb_token:   str,
+    target_ip:  str,
+    verify_ssl: bool = True,
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    NetBox lookup: given a router interface IP, find the switch that is directly
+    connected to that router port (i.e. the device on the other end of the cable).
+
+    This is the key to resolving multiple CDP neighbors: when EJ-WAN-DIS-02 sees
+    9 devices on Twe1/0/24, we look up the target IP (198.18.1.91) in NetBox,
+    find it on UMC-WAN-RTR-02 Te0/0/2, follow the cable to UMC-WAN-DIS-02,
+    and match that name (stripped + lowercased) against the CDP list.
+
+    Returns (neighbor_device_name_lower, neighbor_primary_ip) or (None, None).
+    """
+    try:
+        nb = _get_nb_client(nb_url, nb_token, verify_ssl)
+
+        # Step 1 — find the IP record
+        ip_recs: list = []
+        for addr in (f"{target_ip}/32", target_ip):
+            ip_recs = list(nb.nb.ipam.ip_addresses.filter(address=addr))
+            if ip_recs:
+                break
+        if not ip_recs:
+            log.debug("NetBox: IP %s not found", target_ip)
+            return None, None
+
+        rec      = ip_recs[0]
+        obj_type = str(getattr(rec, "assigned_object_type", "") or "")
+        obj_id   = getattr(rec, "assigned_object_id", None)
+        if not obj_id or "dcim.interface" not in obj_type:
+            return None, None
+
+        # Step 2 — get the interface record
+        iface = nb.nb.dcim.interfaces.get(obj_id)
+        if not iface:
+            return None, None
+
+        # Step 3 — follow the cable to the connected endpoint
+        connected = None
+        for attr in ("connected_endpoint", "link_peers", "connected_endpoints"):
+            val = getattr(iface, attr, None)
+            if not val:
+                continue
+            connected = val[0] if isinstance(val, list) else val
+            break
+
+        if not connected:
+            # No cable data — return the device that owns the IP itself
+            dev = getattr(iface, "device", None)
+            if dev:
+                return str(dev.name).lower(), None
+            return None, None
+
+        # Step 4 — get the name of the connected device
+        connected_dev = getattr(connected, "device", None)
+        if not connected_dev:
+            return None, None
+
+        devs = nb.get_devices({"id": int(connected_dev.id)})
+        if not devs:
+            return None, None
+
+        device    = devs[0]
+        dev_name  = device.get("name", "").lower()
+        mgmt_ip   = nb.get_device_mgmt_ip(device)
+        print(
+            f"[L3]   NetBox: {target_ip} is on "
+            f"{getattr(iface.device, 'name', '?')}/{iface} "
+            f"→ connected to {dev_name}"
+        )
+        return dev_name, mgmt_ip
+
+    except Exception as exc:
+        log.debug("_lookup_neighbor_for_ip(%s): %s", target_ip, exc)
+        return None, None
+
+
+def _select_neighbor_for_target(
+    neighbors:  List[Dict[str, str]],
+    target_ip:  str,
+    nb_url:     str,
+    nb_token:   str,
+    verify_ssl: bool = True,
+) -> Optional[Dict[str, str]]:
+    """
+    Choose the correct CDP neighbor from a list of multiple candidates.
+
+    Priority:
+      1. A neighbor whose management IP equals target_ip directly.
+      2. A neighbor whose device name (stripped of domain, lowercased) matches
+         the switch that NetBox says is connected to the target_ip interface.
+      3. Fall back to the first neighbor.
+    """
+    # Direct IP match
+    for n in neighbors:
+        if n.get("neighbor_ip") == target_ip:
+            print(f"[L3]   Neighbor {n.get('neighbor_id')} matches target IP {target_ip} directly")
+            return n
+
+    # NetBox resolution
+    if nb_url and nb_token:
+        target_dev_name, _ = _lookup_neighbor_for_ip(nb_url, nb_token, target_ip, verify_ssl)
+        if target_dev_name:
+            for n in neighbors:
+                cdp_name = n.get("neighbor_id", "").lower().split(".")[0]
+                if cdp_name == target_dev_name:
+                    print(
+                        f"[L3]   NetBox matched {n.get('neighbor_id')} "
+                        f"({n.get('neighbor_ip')}) for target {target_ip}"
+                    )
+                    return n
+            print(
+                f"[L3]   WARNING: NetBox says {target_dev_name!r} is the neighbor "
+                f"but it was not found in CDP list "
+                f"({', '.join(n.get('neighbor_id','?') for n in neighbors)})"
+            )
+
+    # Fallback to first
+    return neighbors[0] if neighbors else None
+
+
 def _cdp_l2_walk_between_l3_hops(
     client:         CiscoDeviceClient,
     device_type:    str,
@@ -1793,6 +1978,9 @@ def _cdp_l2_walk_between_l3_hops(
     next_hop_ip:    str,
     creds:          Dict[str, str],
     max_l2_hops:    int = 8,
+    nb_url:         str = "",
+    nb_token:       str = "",
+    verify_ssl:     bool = True,
 ) -> List[Dict]:
     """Discover intermediate L2 switches between two L3 hops for non-BGP routes.
 
@@ -1832,36 +2020,29 @@ def _cdp_l2_walk_between_l3_hops(
         "note":             str  (error or informational note, may be empty),
       }
     """
-    l2_hops:      List[Dict] = []
-    visited:      set        = set()
+    l2_hops:  List[Dict] = []
+    visited:  set        = set()
 
-    # ── Step 1: CDP on the current L3 router's egress interface ──────────────
-    print(f"[L3]   Non-BGP L2 walk: show cdp neighbors {exit_interface} detail")
-    neighbor = get_neighbor_info(client, device_type, exit_interface)
+    # ── Step 1: all CDP neighbors on the current L3 router's egress interface ──
+    print(f"[L3]   L2 walk: show cdp neighbors {exit_interface} detail")
+    neighbors = get_all_cdp_neighbors(client, device_type, exit_interface)
 
-    if not neighbor:
-        # No CDP/LLDP on this port — direct physical link to next-hop, nothing to add.
-        return []
+    if not neighbors:
+        return []   # No CDP neighbour — direct physical link, nothing to add
 
-    neighbor_ip = neighbor.get("neighbor_ip")
-    neighbor_id = neighbor.get("neighbor_id", "unknown")
+    # Pick the correct neighbour (direct IP match → NetBox resolution → first)
+    neighbor    = _select_neighbor_for_target(neighbors, next_hop_ip, nb_url, nb_token, verify_ssl)
+    neighbor_ip = neighbor.get("neighbor_ip") if neighbor else None
+    neighbor_id = (neighbor.get("neighbor_id") or "unknown") if neighbor else "unknown"
 
     if neighbor_ip == next_hop_ip:
-        # The CDP peer IS the next-hop L3 router — no L2 switches in between.
-        print(
-            f"[L3]   CDP on {exit_interface}: direct L3 neighbor "
-            f"{neighbor_id} ({neighbor_ip})"
-        )
+        print(f"[L3]   CDP on {exit_interface}: direct L3 neighbor {neighbor_id} ({neighbor_ip})")
         return []
 
-    # Intermediate L2 switch found.
-    print(
-        f"[L3]   CDP on {exit_interface}: intermediate switch "
-        f"{neighbor_id} ({neighbor_ip})"
-    )
+    print(f"[L3]   CDP on {exit_interface}: intermediate switch {neighbor_id} ({neighbor_ip})")
 
     current_ip    = neighbor_ip
-    incoming_port = neighbor.get("remote_port")  # port on the SWITCH facing back to us
+    incoming_port = neighbor.get("remote_port") if neighbor else None
 
     # ── Step 2: walk through each intermediate switch ─────────────────────────
     for _ in range(max_l2_hops):
@@ -1930,7 +2111,12 @@ def _cdp_l2_walk_between_l3_hops(
                             check = mbrs[0]
 
                     print(f"[L3]   show cdp neighbors {check} detail")
-                    next_neighbor = get_neighbor_info(sw, "ios", check)
+                    next_neighbors = get_all_cdp_neighbors(sw, "ios", check)
+                    if next_neighbors:
+                        next_neighbor = _select_neighbor_for_target(
+                            next_neighbors, next_hop_ip,
+                            nb_url, nb_token, verify_ssl,
+                        )
                 else:
                     note = f"MAC {cisco_mac} not in address-table on {sw_hostname}"
                     print(f"[L3]   {note}")
@@ -2196,37 +2382,70 @@ def run_l3_path_trace(
                         iface_details[_ei] = get_interface_detail(client, "ios", _ei)
                         _seen_ifaces.add(_ei)
 
-            # ── Non-BGP L2 intermediate walk ─────────────────────────────────
-            # For every non-BGP egress route that has a physical exit interface,
-            # run CDP on that interface to find L2 switches between this router
-            # and the next-hop.  BGP uses recursive next-hops resolved via IGP
-            # so the physical path is handled by the IGP hop — skip BGP here.
+            # ── L2 intermediate walk — non-BGP AND BGP routes ────────────────
+            # Non-BGP (OSPF/EIGRP/static): the exit_interface is a physical
+            #   port → walk CDP directly from that interface.
+            # BGP: the next-hop is a loopback/VIP.  First resolve it to its
+            #   physical IGP path ("show ip route <bgp_nh>"), then walk CDP
+            #   from the physical interface to capture the L2 switches that
+            #   sit between this router and the BGP peer.
             l2_intermediate: List[Dict] = []
             if not any(r.get("next_hop") == "directly connected" for r in egress_routes):
                 for _r in egress_routes:
                     _rsrc = (_r.get("route_source") or "").lower()
                     _ei   = _r.get("exit_interface")
                     _nh   = _r.get("next_hop")
-                    if (
-                        "bgp" not in _rsrc
-                        and _ei
-                        and _nh
-                        and _nh != "directly connected"
-                    ):
+                    if not _nh or _nh == "directly connected":
+                        continue
+
+                    if "bgp" not in _rsrc and _ei:
+                        # ── Non-BGP: walk from the route's physical exit interface ──
                         print(
-                            f"[L3]   Non-BGP route ({_rsrc}) via {_ei} "
-                            f"→ checking for L2 switches toward {_nh}"
+                            f"[L3]   Non-BGP ({_rsrc}) via {_ei} "
+                            f"→ L2 walk toward {_nh}"
                         )
                         _walked = _cdp_l2_walk_between_l3_hops(
-                            client, "ios", _ei, _nh, creds
+                            client, "ios", _ei, _nh, creds,
+                            nb_url=nb_url, nb_token=nb_token, verify_ssl=verify_ssl,
                         )
                         if _walked:
                             l2_intermediate.extend(_walked)
-                            print(
-                                f"[L3]   Found {len(_walked)} intermediate "
-                                f"L2 switch(es) toward {_nh}"
-                            )
-                        break  # one walk per L3 hop (first unique non-BGP egress)
+                            print(f"[L3]   Found {len(_walked)} L2 switch(es) toward {_nh}")
+                        break
+
+                    elif "bgp" in _rsrc:
+                        # ── BGP: resolve next-hop to physical path first ──────────
+                        print(
+                            f"[L3]   BGP route — resolving next-hop {_nh} "
+                            f"to physical path before L2 walk..."
+                        )
+                        bgp_nh_routes = get_routes_for_ip(client, _nh)
+                        for _bgp_r in bgp_nh_routes:
+                            _bgp_rsrc = (_bgp_r.get("route_source") or "").lower()
+                            _bgp_ei   = _bgp_r.get("exit_interface")
+                            _bgp_nh   = _bgp_r.get("next_hop")
+                            if (
+                                "bgp" not in _bgp_rsrc
+                                and _bgp_ei
+                                and _bgp_nh
+                                and _bgp_nh != "directly connected"
+                            ):
+                                print(
+                                    f"[L3]   BGP next-hop {_nh} resolves via "
+                                    f"{_bgp_rsrc}: physical {_bgp_nh} on {_bgp_ei}"
+                                )
+                                _walked = _cdp_l2_walk_between_l3_hops(
+                                    client, "ios", _bgp_ei, _bgp_nh, creds,
+                                    nb_url=nb_url, nb_token=nb_token, verify_ssl=verify_ssl,
+                                )
+                                if _walked:
+                                    l2_intermediate.extend(_walked)
+                                    print(
+                                        f"[L3]   Found {len(_walked)} L2 switch(es) "
+                                        f"on path to BGP peer {_nh}"
+                                    )
+                                break
+                        break  # one walk per L3 hop
 
             # If this device has the destination subnet directly connected,
             # run the full L2 trace (ARP → MAC table → CDP) while still connected.
