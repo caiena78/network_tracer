@@ -2044,13 +2044,24 @@ def _cdp_l2_walk_between_l3_hops(
     current_ip    = neighbor_ip
     incoming_port = neighbor.get("remote_port") if neighbor else None
 
-    # ── Step 2: walk through each intermediate switch ─────────────────────────
+    # ── Step 2: Obtain the MAC address for next_hop_ip from the STARTING router ──
+    # ARP must be run HERE (on the L3 router we're already connected to) because
+    # intermediate L2 switches do not have ARP entries for remote routed IPs.
+    # This MAC is then carried through every switch via MAC-table lookups only.
+    print(f"[L3]   show ip arp {next_hop_ip} → get MAC for L2 tracking")
+    target_mac: Optional[str] = arp_lookup(client, device_type, next_hop_ip)
+    if target_mac:
+        print(f"[L3]   ARP: {next_hop_ip} → {mac_to_cisco_fmt(target_mac)}")
+    else:
+        print(f"[L3]   Warning: no ARP for {next_hop_ip} on this device — MAC-table walk may fail")
+
+    # ── Step 3: Walk through intermediate L2 switches ────────────────────────────
     for _ in range(max_l2_hops):
         if not current_ip or current_ip in visited:
             break
         visited.add(current_ip)
 
-        print(f"[L3]   Connecting to intermediate L2 switch {current_ip}...")
+        print(f"[L3]   Connecting to intermediate device {current_ip}...")
 
         try:
             sw = _open_device_client(current_ip, "ios", creds)
@@ -2068,11 +2079,12 @@ def _cdp_l2_walk_between_l3_hops(
             break
 
         sw_hostname    = current_ip
-        incoming_det:  Dict                  = {}
-        outgoing_port: Optional[str]         = None
-        outgoing_det:  Dict                  = {}
+        incoming_det:  Dict                    = {}
+        outgoing_port: Optional[str]           = None
+        outgoing_det:  Dict                    = {}
         next_neighbor: Optional[Dict[str,str]] = None
-        note: str = ""
+        note:          str                     = ""
+        found_target:  bool                    = False
 
         try:
             try:
@@ -2083,46 +2095,76 @@ def _cdp_l2_walk_between_l3_hops(
             except Exception:
                 pass
 
-            print(f"[L3]   L2 switch: {sw_hostname} ({current_ip})")
+            print(f"[L3]   Device: {sw_hostname} ({current_ip})")
 
             # Interface counters for the incoming port (toward upstream L3 router)
             if incoming_port:
                 print(f"[L3]   show interface {incoming_port}")
                 incoming_det = get_interface_detail(sw, "ios", incoming_port)
 
-            # Locate egress port via ARP → MAC table
-            print(f"[L3]   show ip arp {next_hop_ip}  (resolve egress toward next-hop)")
-            next_mac = arp_lookup(sw, "ios", next_hop_ip)
+            # ── CHECK 1: is next_hop_ip on this device's own interfaces? ─────
+            # If yes, we've reached the destination router (the BGP peer).
+            # L2 switches have no routed IPs so this will only match on a router.
+            try:
+                ip_brief = _send_cmd(sw, "show ip int brief")
+                if next_hop_ip in ip_brief:
+                    print(
+                        f"[L3]   Found {next_hop_ip} on {sw_hostname} — "
+                        f"reached the BGP peer device"
+                    )
+                    found_target = True
+            except Exception:
+                pass
 
-            if next_mac:
-                cisco_mac = mac_to_cisco_fmt(next_mac)
-                print(f"[L3]   show mac address-table address {cisco_mac}")
-                mac_entry = mac_table_lookup(sw, "ios", next_mac)
-                if mac_entry:
-                    outgoing_port = mac_entry["interface"]
-                    print(f"[L3]   Egress toward {next_hop_ip}: {outgoing_port}")
-                    outgoing_det = get_interface_detail(sw, "ios", outgoing_port)
+            if not found_target:
+                # ── CHECK 2: MAC-table lookup using the MAC obtained earlier ──
+                # Do NOT ARP here — L2 switches won't have the ARP entry.
+                if target_mac:
+                    cisco_mac = mac_to_cisco_fmt(target_mac)
+                    print(f"[L3]   show mac address-table address {cisco_mac}")
+                    mac_entry = mac_table_lookup(sw, "ios", target_mac)
+                    if mac_entry:
+                        outgoing_port = mac_entry["interface"]
+                        print(f"[L3]   Egress port: {outgoing_port}")
+                        outgoing_det = get_interface_detail(sw, "ios", outgoing_port)
 
-                    # CDP on egress port to decide whether to continue the walk
-                    check = outgoing_port
-                    if is_portchannel(outgoing_port):
-                        mbrs = get_portchannel_members(sw, "ios", outgoing_port)
-                        if mbrs:
-                            check = mbrs[0]
+                        # CDP on egress port — may return multiple neighbours
+                        check = outgoing_port
+                        if is_portchannel(outgoing_port):
+                            mbrs = get_portchannel_members(sw, "ios", outgoing_port)
+                            if mbrs:
+                                check = mbrs[0]
 
-                    print(f"[L3]   show cdp neighbors {check} detail")
-                    next_neighbors = get_all_cdp_neighbors(sw, "ios", check)
-                    if next_neighbors:
-                        next_neighbor = _select_neighbor_for_target(
-                            next_neighbors, next_hop_ip,
-                            nb_url, nb_token, verify_ssl,
-                        )
+                        print(f"[L3]   show cdp neighbors {check} detail")
+                        next_neighbors = get_all_cdp_neighbors(sw, "ios", check)
+                        if next_neighbors:
+                            next_neighbor = _select_neighbor_for_target(
+                                next_neighbors, next_hop_ip,
+                                nb_url, nb_token, verify_ssl,
+                            )
+                    else:
+                        note = f"MAC {cisco_mac} not in address-table on {sw_hostname}"
+                        print(f"[L3]   {note}")
                 else:
-                    note = f"MAC {cisco_mac} not in address-table on {sw_hostname}"
-                    print(f"[L3]   {note}")
-            else:
-                note = f"No ARP entry for {next_hop_ip} on {sw_hostname}"
-                print(f"[L3]   {note}")
+                    # MAC not available — try ARP as last resort (some routed switches may respond)
+                    fallback_mac = arp_lookup(sw, "ios", next_hop_ip)
+                    if fallback_mac:
+                        target_mac = fallback_mac
+                        print(f"[L3]   Fallback ARP succeeded: {next_hop_ip} → {mac_to_cisco_fmt(target_mac)}")
+                        mac_entry = mac_table_lookup(sw, "ios", target_mac)
+                        if mac_entry:
+                            outgoing_port = mac_entry["interface"]
+                            outgoing_det  = get_interface_detail(sw, "ios", outgoing_port)
+                            check = outgoing_port
+                            next_neighbors = get_all_cdp_neighbors(sw, "ios", check)
+                            if next_neighbors:
+                                next_neighbor = _select_neighbor_for_target(
+                                    next_neighbors, next_hop_ip,
+                                    nb_url, nb_token, verify_ssl,
+                                )
+                    else:
+                        note = f"No MAC and no ARP for {next_hop_ip} on {sw_hostname}"
+                        print(f"[L3]   {note}")
 
         finally:
             try:
@@ -2140,6 +2182,10 @@ def _cdp_l2_walk_between_l3_hops(
             "note":             note,
         })
 
+        # If we found the target IP on this device it is the BGP peer router — stop.
+        if found_target:
+            break
+
         if next_neighbor:
             next_ip = next_neighbor.get("neighbor_ip")
             if next_ip == next_hop_ip:
@@ -2150,7 +2196,7 @@ def _cdp_l2_walk_between_l3_hops(
                 current_ip    = next_ip
                 continue
 
-        break  # no more CDP neighbors or next-hop already reached
+        break  # no more CDP neighbours — end of walk
 
     return l2_hops
 
