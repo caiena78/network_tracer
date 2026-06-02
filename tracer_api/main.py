@@ -478,7 +478,6 @@ async def delete_history_entry(entry_id: str) -> None:
 
 @app.get(
     "/api/v1/ordr/{ip}",
-    response_model=OrdrDeviceData,
     summary="Query ORDR for device intelligence by IP",
     tags=["ordr"],
     dependencies=[Depends(_check_api_key)],

@@ -265,92 +265,92 @@ function OrdrPanel({ ip }: { ip: string }) {
             </button>
           </div>
 
-          {/* Status badges row */}
+          {/* Status badges */}
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
-            {data.conn_status && (
+            {data.connStatus && (
               <Badge
-                label={data.conn_status}
-                color={data.conn_status === 'ONLINE' ? 'var(--color-success)' : 'var(--color-error)'}
+                label={data.connStatus}
+                color={data.connStatus === 'ONLINE' ? 'var(--color-success)' : 'var(--color-error)'}
               />
             )}
-            {data.risk_state && (
+            {data.RiskState && (
               <Badge
-                label={`Risk: ${data.risk_state}${data.risk_score != null ? ` (${data.risk_score})` : ''}`}
-                color={RISK_COLORS[data.risk_state.toUpperCase()] ?? 'var(--text-muted)'}
+                label={`Risk: ${data.RiskState}${data.riskScore != null ? ` (${data.riskScore})` : ''}`}
+                color={RISK_COLORS[data.RiskState.toUpperCase()] ?? 'var(--text-muted)'}
               />
             )}
-            {data.known_vuln_risk && data.known_vuln_risk !== 'NONE' && (
+            {data.knownVulnRiskState && data.knownVulnRiskState !== 'NONE' && (
               <Badge
-                label={`Vuln: ${data.known_vuln_risk}`}
-                color={RISK_COLORS[data.known_vuln_risk.toUpperCase()] ?? 'var(--text-muted)'}
+                label={`Vuln: ${data.knownVulnRiskState}`}
+                color={RISK_COLORS[data.knownVulnRiskState.toUpperCase()] ?? 'var(--text-muted)'}
               />
             )}
-            {data.alarm_count != null && data.alarm_count > 0 && (
-              <Badge label={`${data.alarm_count} alarm${data.alarm_count !== 1 ? 's' : ''}`} color="var(--color-warning)" />
+            {data.alarmCount != null && data.alarmCount > 0 && (
+              <Badge label={`${data.alarmCount} alarm${data.alarmCount !== 1 ? 's' : ''}`} color="var(--color-warning)" />
             )}
           </div>
 
           <OrdrGroup title="Identity">
-            <Row label="Device name"   value={data.device_name} />
+            <Row label="Device name"   value={data.deviceName} />
             <Row label="FQDN"          value={data.fqdn} />
-            <Row label="DHCP hostname" value={data.dhcp_hostname} />
-            <Row label="MAC"           value={data.mac} />
-            <Row label="IP"            value={data.ip} />
-            <Row label="Serial"        value={data.serial} />
-            <Row label="First seen"    value={data.first_seen} />
-            <Row label="Last seen"     value={data.last_seen} />
+            <Row label="DHCP hostname" value={data.dhcpHostname} />
+            <Row label="MAC"           value={data.MacAddress} />
+            <Row label="IP"            value={data.IpAddress} />
+            <Row label="Serial"        value={data.SerialNo} />
+            <Row label="First seen"    value={data.firstSeen} />
+            <Row label="Last seen"     value={data.lastSeen} />
           </OrdrGroup>
 
           <OrdrGroup title="Classification">
-            <Row label="Type"          value={data.device_type} />
-            <Row label="Description"   value={data.device_descr} />
-            <Row label="Group"         value={data.group} />
-            <Row label="Profile"       value={data.profile} />
-            <Row label="Endpoint type" value={data.endpoint_type} />
-            <Row label="Classified"    value={data.classification_state} />
+            <Row label="Type"          value={data.DeviceType} />
+            <Row label="Description"   value={data.DeviceDescr} />
+            <Row label="Group"         value={data.Group} />
+            <Row label="Profile"       value={data.Profile} />
+            <Row label="Endpoint type" value={data.endpointType} />
+            <Row label="Classified"    value={data.classificationState} />
             <Row label="Criticality"   value={data.criticality} />
             <Row label="OU"            value={data.ou} />
-            <Row label="FDA class"     value={data.fda_class != null ? String(data.fda_class) : undefined} />
-            <Row label="Secondary"     value={data.secondary_device != null ? (data.secondary_device ? 'Yes' : 'No') : undefined} />
-            <Row label="Guest"         value={data.guest_device != null ? (data.guest_device ? 'Yes' : 'No') : undefined} />
+            <Row label="FDA class"     value={data.fdaClass != null ? String(data.fdaClass) : undefined} />
+            <Row label="Secondary"     value={data.secondaryDevice != null ? (data.secondaryDevice ? 'Yes' : 'No') : undefined} />
+            <Row label="Guest"         value={data.guestDevice != null ? (data.guestDevice ? 'Yes' : 'No') : undefined} />
           </OrdrGroup>
 
           <OrdrGroup title="Hardware / Software">
-            <Row label="Manufacturer"  value={data.manufacturer || data.mfg_name} />
-            <Row label="Model"         value={data.model} />
-            <Row label="OS"            value={data.os_type ? `${data.os_type}${data.os_version ? ` ${data.os_version}` : ''}` : data.os_version} />
-            <Row label="SW version"    value={data.sw_version} />
+            <Row label="Manufacturer"  value={data.LongMfgName || data.MfgName} />
+            <Row label="Model"         value={data.ModelNameNo} />
+            <Row label="OS"            value={data.OsType ? `${data.OsType}${data.OsVersion ? ` ${data.OsVersion}` : ''}` : data.OsVersion} />
+            <Row label="SW version"    value={data.SwVersion} />
           </OrdrGroup>
 
           <OrdrGroup title="Network">
-            <Row label="Subnet"        value={data.subnet} />
-            <Row label="VLAN"          value={data.vlan != null ? `${data.vlan}${data.vlan_name ? ` — ${data.vlan_name}` : ''}` : undefined} />
-            <Row label="Access"        value={data.access_type} />
+            <Row label="Subnet"        value={data.Subnet} />
+            <Row label="VLAN"          value={data.Vlan != null ? `${data.Vlan}${data.vlanName ? ` — ${data.vlanName}` : ''}` : undefined} />
+            <Row label="Access"        value={data.accessType} />
             <Row label="SSID"          value={data.essid} />
-            <Row label="DHCP"          value={data.dhcp_enabled != null ? (data.dhcp_enabled ? `Enabled${data.dhcp_hostname ? ` (${data.dhcp_hostname})` : ''}` : 'Disabled') : undefined} />
+            <Row label="DHCP"          value={data.dhcpEnabled != null ? (data.dhcpEnabled ? `Enabled${data.dhcpHostname ? ` (${data.dhcpHostname})` : ''}` : 'Disabled') : undefined} />
           </OrdrGroup>
 
           <OrdrGroup title="Connected via">
-            <Row label="Switch"        value={data.nw_equip_hostname} />
-            <Row label="Interface"     value={data.nw_equip_interface} />
-            <Row label="Scrape IP"     value={data.nw_equip_scrape_ip} />
-            <Row label="Sensor"        value={data.sensor_name ? `${data.sensor_name}${data.sensor_ip ? ` (${data.sensor_ip})` : ''}` : undefined} />
+            <Row label="Switch"        value={data.nwEquipHostname} />
+            <Row label="Interface"     value={data.nwEquipInterface} />
+            <Row label="Scrape IP"     value={data.nwEquipScrapeIp} />
+            <Row label="Sensor"        value={data.sensorName ? `${data.sensorName}${data.sensorIp ? ` (${data.sensorIp})` : ''}` : undefined} />
           </OrdrGroup>
 
-          {(data.device_location || data.sensor_location) && (
+          {(data.deviceLocation || data.sensorLocation) && (
             <OrdrGroup title="Location">
-              <Row label="Device"      value={data.device_location} />
-              <Row label="Sensor"      value={data.sensor_location} />
+              <Row label="Device"      value={data.deviceLocation} />
+              <Row label="Sensor"      value={data.sensorLocation} />
             </OrdrGroup>
           )}
 
           <OrdrGroup title="Risk &amp; Security">
-            <Row label="Risk score"    value={data.risk_score != null ? String(data.risk_score) : undefined} warn={(data.risk_score ?? 0) > 5} />
-            <Row label="Known vulns"   value={data.known_vuln_risk} warn={data.known_vuln_risk === 'CRITICAL' || data.known_vuln_risk === 'HIGH'} />
-            <Row label="Alarms"        value={data.alarm_count != null ? String(data.alarm_count) : undefined} warn={(data.alarm_count ?? 0) > 0} />
-            <Row label="PHI"           value={data.has_phi != null ? (data.has_phi ? 'Yes' : 'No') : undefined} warn={!!data.has_phi} />
-            <Row label="Ext flows"     value={data.has_external_flows} warn={data.has_external_flows === 'true'} />
-            <Row label="Blacklisted"   value={data.is_blacklisted != null ? (data.is_blacklisted ? 'Yes' : 'No') : undefined} warn={!!data.is_blacklisted} />
+            <Row label="Risk score"    value={data.riskScore != null ? String(data.riskScore) : undefined} warn={(data.riskScore ?? 0) > 5} />
+            <Row label="Known vulns"   value={data.knownVulnRiskState} warn={data.knownVulnRiskState === 'CRITICAL' || data.knownVulnRiskState === 'HIGH'} />
+            <Row label="Alarms"        value={data.alarmCount != null ? String(data.alarmCount) : undefined} warn={(data.alarmCount ?? 0) > 0} />
+            <Row label="PHI"           value={data.hasPhi != null ? (data.hasPhi ? 'Yes' : 'No') : undefined} warn={!!data.hasPhi} />
+            <Row label="Ext flows"     value={data.hasExternalFlows} warn={data.hasExternalFlows === 'true'} />
+            <Row label="Blacklisted"   value={data.isBlacklisted != null ? (data.isBlacklisted ? 'Yes' : 'No') : undefined} warn={!!data.isBlacklisted} />
             <Row label="Proxied"       value={data.proxied != null ? (data.proxied ? 'Yes' : 'No') : undefined} />
           </OrdrGroup>
         </div>
