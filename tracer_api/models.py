@@ -176,9 +176,9 @@ class OrdrDeviceData(BaseModel):
     # ── Identity ────────────────────────────────────────────────────────────
     ip:                   Optional[str]   = Field(None, alias="IpAddress")
     mac:                  Optional[str]   = Field(None, alias="MacAddress")
+    device_name:          Optional[str]   = Field(None, alias="deviceName")
     fqdn:                 Optional[str]   = Field(None, alias="fqdn")
     dhcp_hostname:        Optional[str]   = Field(None, alias="dhcpHostname")
-    device_name:          Optional[str]   = Field(None, alias="deviceName")
     serial:               Optional[str]   = Field(None, alias="SerialNo")
     # ── Classification ──────────────────────────────────────────────────────
     device_type:          Optional[str]   = Field(None, alias="DeviceType")
@@ -189,6 +189,9 @@ class OrdrDeviceData(BaseModel):
     classification_state: Optional[str]   = Field(None, alias="classificationState")
     criticality:          Optional[str]   = Field(None, alias="criticality")
     fda_class:            Optional[int]   = Field(None, alias="fdaClass")
+    secondary_device:     Optional[bool]  = Field(None, alias="secondaryDevice")
+    guest_device:         Optional[bool]  = Field(None, alias="guestDevice")
+    ou:                   Optional[str]   = Field(None, alias="ou")
     # ── Hardware / Software ──────────────────────────────────────────────────
     manufacturer:         Optional[str]   = Field(None, alias="LongMfgName")
     mfg_name:             Optional[str]   = Field(None, alias="MfgName")
@@ -216,10 +219,12 @@ class OrdrDeviceData(BaseModel):
     conn_status:          Optional[str]   = Field(None, alias="connStatus")
     first_seen:           Optional[str]   = Field(None, alias="firstSeen")
     last_seen:            Optional[str]   = Field(None, alias="lastSeen")
-    # ── Network equipment (connection point) ─────────────────────────────────
+    # ── Network equipment (where the device is connected) ────────────────────
     nw_equip_hostname:    Optional[str]   = Field(None, alias="nwEquipHostname")
     nw_equip_interface:   Optional[str]   = Field(None, alias="nwEquipInterface")
-    nw_equip_scrape_ip:   Optional[str]   = Field(None, alias="nwEuipScrapeIp")   # API typo preserved
+    # Accept both the real field name and the typo from the schema
+    nw_equip_scrape_ip:   Optional[str]   = Field(None, alias="nwEquipScrapeIp")
+    nw_equip_scrape_ip_typo: Optional[str] = Field(None, alias="nwEuipScrapeIp")
     # ── Location ────────────────────────────────────────────────────────────
     device_location:      Optional[str]   = Field(None, alias="deviceLocation")
     sensor_location:      Optional[str]   = Field(None, alias="sensorLocation")

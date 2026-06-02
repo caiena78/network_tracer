@@ -225,9 +225,9 @@ export interface OrdrDeviceData {
   // Identity
   ip?:                   string;
   mac?:                  string;
+  device_name?:          string;
   fqdn?:                 string;
   dhcp_hostname?:        string;
-  device_name?:          string;
   serial?:               string;
   // Classification
   device_type?:          string;
@@ -238,6 +238,9 @@ export interface OrdrDeviceData {
   classification_state?: string;
   criticality?:          string;
   fda_class?:            number;
+  secondary_device?:     boolean;
+  guest_device?:         boolean;
+  ou?:                   string;   // Active Directory / LDAP organizational unit
   // Hardware / Software
   manufacturer?:         string;
   mfg_name?:             string;
