@@ -1735,6 +1735,206 @@ def print_path_summary(path_dict: Dict) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Phase 3 — SVI gateway trace helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _vlan_in_list(vlan_num: int, vlan_list_str: str) -> bool:
+    """Return True when vlan_num appears in a Cisco VLAN range string.
+
+    Handles comma-separated entries and dash-ranges:
+    e.g. ``"1,10,54,100-200,300-400"``.
+    """
+    for part in vlan_list_str.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            try:
+                lo_s, hi_s = part.split("-", 1)
+                lo, hi = int(lo_s.strip()), int(hi_s.strip())
+                if lo <= vlan_num <= hi:
+                    return True
+            except (ValueError, TypeError):
+                pass
+        else:
+            try:
+                if int(part) == vlan_num:
+                    return True
+            except (ValueError, TypeError):
+                pass
+    return False
+
+
+def _parse_trunk_ports_for_vlan(output: str, vlan_id: str) -> List[str]:
+    """Parse ``show interfaces trunk`` and return ports that carry *vlan_id*.
+
+    Looks at the "VLANs allowed and active in management domain" section
+    (currently active VLANs) and falls back to the STP-forwarding section.
+    Works for IOS/IOS-XE and NX-OS trunk output formats.
+    """
+    try:
+        vlan_num = int(vlan_id)
+    except (ValueError, TypeError):
+        log.debug("_parse_trunk_ports_for_vlan: invalid vlan_id %r", vlan_id)
+        return []
+
+    _ACTIVE_HDR = re.compile(r"vlans\s+allowed\s+and\s+active", re.IGNORECASE)
+    _STP_HDR    = re.compile(r"vlans\s+in\s+spanning\s+tree\s+forwarding", re.IGNORECASE)
+
+    def _extract_from_section(hdr_match: re.Match) -> List[str]:
+        section_start = hdr_match.end()
+        next_hdr = re.search(r"\n\S.*vlans\b", output[section_start:], re.IGNORECASE)
+        section_end = section_start + next_hdr.start() if next_hdr else len(output)
+        section_text = output[section_start:section_end]
+        result: List[str] = []
+        for m in re.finditer(r"^(\S+)\s+(\S.*)", section_text, re.MULTILINE):
+            port_name = m.group(1)
+            vlan_list = m.group(2).strip()
+            if "vlan" in port_name.lower():
+                continue
+            if not _VALID_IFACE_RE.match(port_name):
+                continue
+            if _vlan_in_list(vlan_num, vlan_list) and port_name not in result:
+                result.append(port_name)
+        return result
+
+    m = _ACTIVE_HDR.search(output)
+    if m:
+        ports = _extract_from_section(m)
+        if ports:
+            return ports
+
+    m = _STP_HDR.search(output)
+    if m:
+        return _extract_from_section(m)
+
+    return []
+
+
+def _run_svi_endpoint_trace(
+    client: CiscoDeviceClient,
+    device_type: str,
+    dst_ip: str,
+    svi_interface: str,
+    vlan_id: str,
+) -> Dict:
+    """Trace for a destination IP that is the gateway on SVI *svi_interface*.
+
+    When the destination is an SVI IP (HSRP/GLBP VIP or the switch's own SVI
+    address), ARP→MAC table lookup cannot locate it in the forwarding table
+    because virtual gateway MACs are not learned like endpoint MACs.
+
+    This function instead:
+      1. Records the SVI as the terminating virtual interface.
+      2. Finds physical trunk ports carrying the VLAN via ``show interfaces trunk``.
+      3. Runs CDP on each trunk port to discover connected switches.
+
+    The ``svi_trunk_neighbors`` list in the returned dict is consumed by
+    ``_flat_l3_hops`` to emit the inter-switch L2 hops in the path output.
+
+    Returns the same dict shape as ``_run_l2_at_final_hop``.
+    """
+    result: Dict = {
+        "dst_ip":              dst_ip,
+        "mac":                 None,
+        "vlan":                vlan_id,
+        "port":                svi_interface,
+        "portchannel_members": [],
+        "interface_detail":    None,
+        "cdp_neighbor":        None,
+        "svi_trunk_neighbors": [],   # list of {interface, cdp_neighbor}
+        "error":               None,
+        "is_svi":              True,
+    }
+
+    print(
+        f"[L2]   {dst_ip} is gateway SVI {svi_interface} (VLAN {vlan_id}) — "
+        f"discovering trunk ports via show interfaces trunk..."
+    )
+
+    trunk_ports: List[str] = []
+    try:
+        trunk_output = _send_cmd(client, "show interfaces trunk")
+        trunk_ports  = _parse_trunk_ports_for_vlan(trunk_output, vlan_id)
+        if trunk_ports:
+            print(f"[L2]   Trunk ports carrying VLAN {vlan_id}: {', '.join(trunk_ports)}")
+        else:
+            print(f"[L2]   No trunk ports found carrying VLAN {vlan_id}")
+    except Exception as exc:
+        log.debug("_run_svi_endpoint_trace: show interfaces trunk failed: %s", exc)
+        print(f"[L2]   show interfaces trunk failed: {exc}")
+
+    first_neighbor: Optional[Dict] = None
+    for trunk_port in trunk_ports:
+        check_iface = trunk_port
+        if is_portchannel(trunk_port):
+            members = get_portchannel_members(client, device_type, trunk_port)
+            if members:
+                check_iface = members[0]
+
+        print(f"[L2]   show cdp neighbors {check_iface} detail")
+        neighbor = get_neighbor_info(client, device_type, check_iface)
+
+        if neighbor:
+            nid = neighbor.get("neighbor_id", "unknown")
+            nip = neighbor.get("neighbor_ip", "")
+            print(f"[L2]   CDP on {trunk_port}: {nid}" + (f" ({nip})" if nip else ""))
+            cdp_entry: Dict = {
+                "hostname": neighbor.get("neighbor_id"),
+                "ip":       neighbor.get("neighbor_ip"),
+                "platform": neighbor.get("platform"),
+                "port":     neighbor.get("remote_port"),
+                "protocol": neighbor.get("protocol", "CDP"),
+            }
+            result["svi_trunk_neighbors"].append({
+                "interface":    trunk_port,
+                "cdp_neighbor": cdp_entry,
+            })
+            if first_neighbor is None:
+                first_neighbor = cdp_entry
+        else:
+            print(f"[L2]   No CDP neighbor on trunk port {trunk_port}")
+            result["svi_trunk_neighbors"].append({
+                "interface":    trunk_port,
+                "cdp_neighbor": None,
+            })
+
+    result["cdp_neighbor"] = first_neighbor
+    return result
+
+
+def _try_svi_gateway_trace(
+    client: CiscoDeviceClient,
+    device_type: str,
+    dst_ip: str,
+) -> Optional[Dict]:
+    """Attempt an SVI-based trace for *dst_ip* if it is a gateway on a VLAN SVI.
+
+    Runs ``show ip route <dst_ip>`` and checks whether the exit interface is
+    a VLAN SVI (starts with "Vlan").  If so, delegates to
+    ``_run_svi_endpoint_trace``.  Returns None when *dst_ip* is not an SVI
+    gateway so the caller can handle it via its normal path.
+    """
+    try:
+        routes = get_routes_for_ip(client, dst_ip)
+    except Exception:
+        return None
+
+    for route in routes:
+        iface = route.get("exit_interface") or ""
+        if iface.lower().startswith("vlan"):
+            vlan_id = re.sub(r"[^0-9]", "", iface) or "0"
+            print(
+                f"[L2]   Route for {dst_ip}: directly connected via {iface} "
+                f"— SVI gateway detected"
+            )
+            return _run_svi_endpoint_trace(client, device_type, dst_ip, iface, vlan_id)
+
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Phase 3 — L3 path trace (gateway → destination, all ECMP paths)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1770,6 +1970,12 @@ def _run_l2_at_final_hop(
     print(f"[L2]   show ip arp {dst_ip}")
     mac = arp_lookup(client, device_type, dst_ip)
     if not mac:
+        # dst_ip may be a gateway VIP on an SVI (HSRP/GLBP) — those don't
+        # respond to ARP from the local device.  Try the SVI fallback.
+        print(f"[L2]   No ARP entry for {dst_ip} — checking if SVI gateway...")
+        svi_result = _try_svi_gateway_trace(client, device_type, dst_ip)
+        if svi_result is not None:
+            return svi_result
         result["error"] = f"No ARP entry for {dst_ip}"
         return result
 
@@ -1780,6 +1986,16 @@ def _run_l2_at_final_hop(
     print(f"[L2]   show mac address-table address {mac_to_cisco_fmt(mac)}")
     mac_entry = mac_table_lookup(client, device_type, mac)
     if not mac_entry:
+        # The MAC may be a virtual gateway MAC (HSRP 00:00:0c:07:ac:xx or
+        # GLBP 00:07:b4:xx) that is NOT learned in the forwarding table.
+        # Fall back to the SVI-aware trace.
+        print(
+            f"[L2]   MAC {mac_to_cisco_fmt(mac)} not in address table — "
+            f"checking if SVI gateway..."
+        )
+        svi_result = _try_svi_gateway_trace(client, device_type, dst_ip)
+        if svi_result is not None:
+            return svi_result
         result["error"] = f"MAC {mac_to_cisco_fmt(mac)} not in address table"
         return result
 
@@ -3350,6 +3566,8 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
                         l2_det["vlan"] = int(vlan_raw)
                     except (ValueError, TypeError):
                         l2_det["vlan"] = vlan_raw
+                if l2t.get("is_svi"):
+                    l2_det["is_svi"] = True
                 mbrs = l2t.get("portchannel_members")
                 if mbrs:
                     l2_det["portchannel_members"] = mbrs
@@ -3363,20 +3581,47 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
                     "interface": l2t.get("port") or "—",
                     "details":   l2_det,
                 })
-                cdp = l2t.get("cdp_neighbor")
-                if cdp and cdp.get("hostname"):
-                    cdp_det = {k: v for k, v in {
-                        "protocol": cdp.get("protocol", "CDP"),
-                        "ip":       cdp.get("ip"),
-                        "platform": cdp.get("platform"),
-                    }.items() if v is not None}
-                    hops.append({
-                        "layer":     "L2",
-                        "device":    cdp["hostname"],
-                        "device_ip": cdp.get("ip"),   # CDP management IP
-                        "interface": cdp.get("port") or "—",
-                        "details":   cdp_det,
-                    })
+                svi_trunks = l2t.get("svi_trunk_neighbors") or []
+                if svi_trunks:
+                    for trunk_entry in svi_trunks:
+                        trunk_iface = trunk_entry.get("interface")
+                        if trunk_iface:
+                            hops.append({
+                                "layer":     "L2",
+                                "device":    l2_dev,
+                                "device_ip": l2_dev_ip,
+                                "interface": trunk_iface,
+                                "details":   {"egress_interface": trunk_iface},
+                            })
+                        cdp = trunk_entry.get("cdp_neighbor")
+                        if cdp and cdp.get("hostname"):
+                            cdp_det = {k: v for k, v in {
+                                "protocol": cdp.get("protocol", "CDP"),
+                                "ip":       cdp.get("ip"),
+                                "platform": cdp.get("platform"),
+                            }.items() if v is not None}
+                            hops.append({
+                                "layer":     "L2",
+                                "device":    cdp["hostname"],
+                                "device_ip": cdp.get("ip"),
+                                "interface": cdp.get("port") or "—",
+                                "details":   cdp_det,
+                            })
+                else:
+                    cdp = l2t.get("cdp_neighbor")
+                    if cdp and cdp.get("hostname"):
+                        cdp_det = {k: v for k, v in {
+                            "protocol": cdp.get("protocol", "CDP"),
+                            "ip":       cdp.get("ip"),
+                            "platform": cdp.get("platform"),
+                        }.items() if v is not None}
+                        hops.append({
+                            "layer":     "L2",
+                            "device":    cdp["hostname"],
+                            "device_ip": cdp.get("ip"),   # CDP management IP
+                            "interface": cdp.get("port") or "—",
+                            "details":   cdp_det,
+                        })
             continue
 
         sel = hop.get("selected_route")  # set only on the gateway hop
@@ -3490,6 +3735,8 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
                     l2_det["vlan"] = int(vlan_raw)
                 except (ValueError, TypeError):
                     l2_det["vlan"] = vlan_raw
+            if l2t.get("is_svi"):
+                l2_det["is_svi"] = True
             mbrs = l2t.get("portchannel_members")
             if mbrs:
                 l2_det["portchannel_members"] = mbrs
@@ -3506,20 +3753,50 @@ def _flat_l3_hops(l3_path: List[Dict]) -> List[Dict]:
                 "details":   l2_det,
             })
 
-            cdp = l2t.get("cdp_neighbor")
-            if cdp and cdp.get("hostname"):
-                cdp_det = {k: v for k, v in {
-                    "protocol": cdp.get("protocol", "CDP"),
-                    "ip":       cdp.get("ip"),
-                    "platform": cdp.get("platform"),
-                }.items() if v is not None}
-                hops.append({
-                    "layer":     "L2",
-                    "device":    cdp["hostname"],
-                    "device_ip": cdp.get("ip"),   # CDP management IP
-                    "interface": cdp.get("port") or "—",
-                    "details":   cdp_det,
-                })
+            svi_trunks = l2t.get("svi_trunk_neighbors") or []
+            if svi_trunks:
+                # SVI gateway — emit each trunk port and its CDP neighbor.
+                # This surfaces the physical inter-switch connections on the
+                # VLAN even though the SVI itself is a virtual interface.
+                for trunk_entry in svi_trunks:
+                    trunk_iface = trunk_entry.get("interface")
+                    if trunk_iface:
+                        hops.append({
+                            "layer":     "L2",
+                            "device":    hostname,
+                            "device_ip": hop.get("connect_ip") or hop.get("ip"),
+                            "interface": trunk_iface,
+                            "details":   {"egress_interface": trunk_iface},
+                        })
+                    cdp = trunk_entry.get("cdp_neighbor")
+                    if cdp and cdp.get("hostname"):
+                        cdp_det = {k: v for k, v in {
+                            "protocol": cdp.get("protocol", "CDP"),
+                            "ip":       cdp.get("ip"),
+                            "platform": cdp.get("platform"),
+                        }.items() if v is not None}
+                        hops.append({
+                            "layer":     "L2",
+                            "device":    cdp["hostname"],
+                            "device_ip": cdp.get("ip"),
+                            "interface": cdp.get("port") or "—",
+                            "details":   cdp_det,
+                        })
+            else:
+                cdp = l2t.get("cdp_neighbor")
+                if cdp and cdp.get("hostname"):
+                    cdp_det = {k: v for k, v in {
+                        "protocol": cdp.get("protocol", "CDP"),
+                        "ip":       cdp.get("ip"),
+                        "platform": cdp.get("platform"),
+                    }.items() if v is not None}
+                    hops.append({
+                        "layer":     "L2",
+                        "device":    cdp["hostname"],
+                        "device_ip": cdp.get("ip"),   # CDP management IP
+                        "interface": cdp.get("port") or "—",
+                        "details":   cdp_det,
+                    })
 
     return hops
 
