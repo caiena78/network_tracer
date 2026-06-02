@@ -252,6 +252,17 @@ def build_graph(
                 ed["src_interface_netbox_url"] = _interface_url(netbox_url, src_dev, src_iface)
             if dst_iface:
                 ed["dst_interface_netbox_url"] = _interface_url(netbox_url, dst_dev, dst_iface)
+        # Interface counters — stored per-side so both ingress AND egress are visible.
+        # src_* = counters for the egress port on the source device
+        # dst_* = counters for the ingress port on the destination device
+        for cf in _IFACE_COUNTER_FIELDS:
+            sv = src_details.get(cf)
+            if sv is not None:
+                ed[f"src_{cf}"] = sv
+            dv = dst_details.get(cf)
+            if dv is not None:
+                ed[f"dst_{cf}"] = dv
+
         # Routing fields (L3 hops) — prefer src side, fall back to dst side.
         for rf in _ROUTING_FIELDS:
             val = src_details.get(rf)

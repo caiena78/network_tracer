@@ -52,27 +52,41 @@ function InnerCanvas({ graph, containerRef }: InnerCanvasProps) {
   const clearPendingDeviceUpdates = useTraceStore((s) => s.clearPendingDeviceUpdates);
 
   // Apply streaming interface updates in one batched pass per animation frame.
-  // SSE events arrive faster than React renders; accumulating them and flushing
-  // once per rAF prevents dozens of sequential re-renders during enrichment.
   useEffect(() => {
     if (pendingEnrichments.length === 0) return;
-    const snapshot = pendingEnrichments;           // capture current batch
+    const snapshot = pendingEnrichments;
     const id = requestAnimationFrame(() => {
       setEdges((prev) =>
         prev.map((edge) => {
           const ed = edge.data as EdgeData | undefined;
           if (!ed) return edge;
-          // Apply ALL matching updates from this batch in one pass
-          const updates = snapshot.filter(
-            (u) =>
-              (ed.src_device === u.device && ed.src_interface === u.interface) ||
-              (ed.dst_device === u.device && ed.dst_interface === u.interface),
-          );
-          if (updates.length === 0) return edge;
+
           let merged: EdgeData = { ...ed };
-          for (const u of updates) {
-            merged = { ...merged, ...(u.data as Partial<EdgeData>) };
+          let changed = false;
+
+          for (const u of snapshot) {
+            const isSrc = ed.src_device === u.device && ed.src_interface === u.interface;
+            const isDst = ed.dst_device === u.device && ed.dst_interface === u.interface;
+            if (!isSrc && !isDst) continue;
+            changed = true;
+
+            const d = u.data as Record<string, unknown>;
+            const prefix = isSrc ? 'src_' : 'dst_';
+
+            // Write every counter field into the prefixed slot so both sides
+            // are always stored independently and never overwrite each other.
+            const patch: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(d)) {
+              if (k === 'raw_output') {
+                patch[isSrc ? 'src_raw_output' : 'dst_raw_output'] = v;
+              } else {
+                patch[`${prefix}${k}`] = v;
+              }
+            }
+            merged = { ...merged, ...patch } as EdgeData;
           }
+
+          if (!changed) return edge;
           const color = edgeColor(merged.layer ?? 'L2');
           return {
             ...edge,

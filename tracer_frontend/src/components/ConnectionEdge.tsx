@@ -15,14 +15,33 @@ import { fetchInterfaceDetail } from '../api/client';
 // ---------------------------------------------------------------------------
 
 function hasErrors(data: EdgeData): boolean {
+  const check = (f: string) => ((data as Record<string, unknown>)[f] as number ?? 0) > 0;
   return (
-    (data.crc          ?? 0) > 0 ||
-    (data.input_error  ?? 0) > 0 ||
-    (data.runts        ?? 0) > 0 ||
-    (data.giants       ?? 0) > 0 ||
-    (data.output_error ?? 0) > 0 ||
-    (data.total_output_drops ?? 0) > 0
+    check('src_crc') || check('dst_crc') ||
+    check('src_input_error') || check('dst_input_error') ||
+    check('src_runts') || check('dst_runts') ||
+    check('src_giants') || check('dst_giants') ||
+    check('src_output_error') || check('dst_output_error') ||
+    check('src_total_output_drops') || check('dst_total_output_drops') ||
+    // legacy flat fields (topology-phase data before enrichment arrives)
+    check('crc') || check('input_error') || check('runts') ||
+    check('giants') || check('output_error') || check('total_output_drops')
   );
+}
+
+/** Resolve a counter value — prefer the per-side prefixed field, fall back to unprefixed. */
+function counter(data: EdgeData, side: 'src' | 'dst', field: string): number | undefined {
+  const prefixed = (data as Record<string, unknown>)[`${side}_${field}`];
+  if (prefixed != null) return prefixed as number;
+  const flat = (data as Record<string, unknown>)[field];
+  if (flat != null) return flat as number;
+  return undefined;
+}
+
+/** True if the given side has any non-zero error counter. */
+function sideHasErrors(data: EdgeData, side: 'src' | 'dst'): boolean {
+  return ['crc', 'input_error', 'runts', 'giants', 'output_error', 'total_output_drops']
+    .some((f) => (counter(data, side, f) ?? 0) > 0);
 }
 
 /**
@@ -287,6 +306,46 @@ export function RoutingSection({ data }: { data: EdgeData }) {
   );
 }
 
+// ── Per-side interface counters (shared between tooltip and sidebar) ─────────
+
+export function InterfaceCounters({
+  data, side, title,
+}: {
+  data:  EdgeData;
+  side:  'src' | 'dst';
+  title: string;
+}) {
+  const fields: Array<[string, string]> = [
+    ['runts',               'Runts'],
+    ['giants',              'Giants'],
+    ['crc',                 'CRC errors'],
+    ['input_error',         'Input errors'],
+    ['total_output_drops',  'Output drops'],
+    ['output_error',        'Output errors'],
+    ['output_discard',      'Output discards'],
+    ['unknown_protocol_drops', 'Unknown proto drops'],
+  ];
+
+  const rows = fields
+    .map(([f, label]) => ({ label, value: counter(data, side, f) }))
+    .filter((r) => r.value != null);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <Section title={title}>
+      {rows.map(({ label, value }) => (
+        <Row
+          key={label}
+          label={label}
+          value={String(value)}
+          warn={(value ?? 0) > 0}
+        />
+      ))}
+    </Section>
+  );
+}
+
 // ── Details tab ─────────────────────────────────────────────────────────────
 
 function DetailsTab({ data }: { data: EdgeData }) {
@@ -321,16 +380,10 @@ function DetailsTab({ data }: { data: EdgeData }) {
         <Row label="Layer" value={data.layer} />
       </Section>
 
-      <Section title="Interface Counters">
-        <Row label="CRC errors"    value={data.crc          != null ? String(data.crc)          : undefined} warn={(data.crc          ?? 0) > 0} />
-        <Row label="Input errors"  value={data.input_error  != null ? String(data.input_error)  : undefined} warn={(data.input_error  ?? 0) > 0} />
-        <Row label="Runts"         value={data.runts         != null ? String(data.runts)        : undefined} warn={(data.runts         ?? 0) > 0} />
-        <Row label="Giants"        value={data.giants        != null ? String(data.giants)       : undefined} warn={(data.giants        ?? 0) > 0} />
-        <Row label="Output errors" value={data.output_error != null ? String(data.output_error) : undefined} warn={(data.output_error ?? 0) > 0} />
-        <Row label="Output drops"  value={data.total_output_drops != null ? String(data.total_output_drops) : undefined} warn={(data.total_output_drops ?? 0) > 0} />
-        <Row label="Unknown drops" value={(data as Record<string, unknown>).unknown_protocol_drops != null ? String((data as Record<string, unknown>).unknown_protocol_drops) : undefined}
-             warn={((data as Record<string, unknown>).unknown_protocol_drops as number ?? 0) > 0} />
-      </Section>
+      <InterfaceCounters data={data} side="src"
+        title={`Egress counters — ${data.src_device ?? ''} ${data.src_interface ?? ''}`} />
+      <InterfaceCounters data={data} side="dst"
+        title={`Ingress counters — ${data.dst_device ?? ''} ${data.dst_interface ?? ''}`} />
     </>
   );
 }

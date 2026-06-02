@@ -3,7 +3,7 @@ import { X, ExternalLink, RefreshCw } from 'lucide-react';
 import type { OrdrDeviceData, SelectedElement, NodeData, EdgeData, StackMember } from '../types/trace';
 import { useTraceStore } from '../store/traceStore';
 import { fetchInterfaceDetail, queryOrdr } from '../api/client';
-import { RoutingSection } from './ConnectionEdge';
+import { InterfaceCounters, RoutingSection } from './ConnectionEdge';
 
 // ---------------------------------------------------------------------------
 // Resize hook — drag the LEFT edge of a right-side panel
@@ -469,12 +469,12 @@ function EdgeDetail({ data }: { data: EdgeData }) {
   const srcRaw = cache[srcKey]?.raw_output ?? data.src_raw_output;
   const dstRaw = cache[dstKey]?.raw_output ?? data.dst_raw_output;
 
-  const hasErrors =
-    (data.runts ?? 0) > 0 ||
-    (data.crc ?? 0) > 0 ||
-    (data.input_error ?? 0) > 0 ||
-    (data.output_error ?? 0) > 0 ||
-    (data.total_output_drops ?? 0) > 0;
+  // hasErrors drives the FetchButton label style but the actual counter display
+  // is handled by InterfaceCounters — so this just checks if any side has errors.
+  const chk = (f: string) => ((data as Record<string,unknown>)[f] as number ?? 0) > 0;
+  const hasErrors = ['src_crc','dst_crc','src_input_error','dst_input_error',
+    'src_runts','dst_runts','src_output_error','dst_output_error',
+    'crc','input_error','runts','output_error'].some(chk);
 
   return (
     <>
@@ -541,21 +541,17 @@ function EdgeDetail({ data }: { data: EdgeData }) {
         </table>
       </Section>
 
-      {/* Error counters */}
-      {hasErrors && (
-        <Section title="Interface Errors">
-          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-            <tbody>
-              <Row label="Runts"        value={data.runts}              warn={(data.runts ?? 0) > 0} />
-              <Row label="Giants"       value={data.giants}             warn={(data.giants ?? 0) > 0} />
-              <Row label="CRC"          value={data.crc}                warn={(data.crc ?? 0) > 0} />
-              <Row label="Input errors" value={data.input_error}        warn={(data.input_error ?? 0) > 0} />
-              <Row label="Output drops" value={data.total_output_drops} warn={(data.total_output_drops ?? 0) > 0} />
-              <Row label="Output errors"value={data.output_error}       warn={(data.output_error ?? 0) > 0} />
-            </tbody>
-          </table>
-        </Section>
-      )}
+      {/* Per-side interface counters */}
+      <InterfaceCounters
+        data={data}
+        side="src"
+        title={`Egress — ${data.src_device ?? ''} ${data.src_interface ?? ''}`}
+      />
+      <InterfaceCounters
+        data={data}
+        side="dst"
+        title={`Ingress — ${data.dst_device ?? ''} ${data.dst_interface ?? ''}`}
+      />
 
       {/* Raw show interface output */}
       {(srcRaw || dstRaw) && (

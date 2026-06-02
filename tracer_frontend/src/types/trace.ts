@@ -146,6 +146,36 @@ export interface EdgeData {
   dst_interface_netbox_url?:   string;
   src_raw_output?:             string;
   dst_raw_output?:             string;
+  // Per-side interface counters (src_ = egress port on source device,
+  //                              dst_ = ingress port on destination device)
+  src_runts?:                  number;
+  src_giants?:                 number;
+  src_crc?:                    number;
+  src_input_error?:            number;
+  src_total_output_drops?:     number;
+  src_output_error?:           number;
+  src_output_discard?:         number;
+  src_unknown_protocol_drops?: number;
+  src_rx_runts?:               number;
+  src_rx_crc?:                 number;
+  src_state?:                  string;
+  src_speed?:                  string;
+  src_duplex?:                 string;
+  src_description?:            string;
+  dst_runts?:                  number;
+  dst_giants?:                 number;
+  dst_crc?:                    number;
+  dst_input_error?:            number;
+  dst_total_output_drops?:     number;
+  dst_output_error?:           number;
+  dst_output_discard?:         number;
+  dst_unknown_protocol_drops?: number;
+  dst_rx_runts?:               number;
+  dst_rx_crc?:                 number;
+  dst_state?:                  string;
+  dst_speed?:                  string;
+  dst_duplex?:                 string;
+  dst_description?:            string;
   // L3 routing fields
   prefix?:            string;
   next_hop_ip?:       string;
