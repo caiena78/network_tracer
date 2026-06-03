@@ -72,8 +72,13 @@ function useSidebarResize() {
 
 export default function App() {
   const graph           = useTraceStore((s) => s.graph);
+  const graphReverse    = useTraceStore((s) => s.graphReverse);
   const selectedElement = useTraceStore((s) => s.selectedElement);
   const phase           = useTraceStore((s) => s.phase);
+  const phaseReverse    = useTraceStore((s) => s.phaseReverse);
+  const bidirectional   = useTraceStore((s) => s.bidirectional);
+  const srcIp           = useTraceStore((s) => s.srcIp);
+  const dstIp           = useTraceStore((s) => s.dstIp);
 
   const { width: sidebarWidth, onMouseDown: startResize } = useSidebarResize();
 
@@ -181,7 +186,80 @@ export default function App() {
           }}
         >
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
-            <DiagramCanvas graph={graph} />
+            {bidirectional ? (
+              /* ── Bidirectional: two independent graphs stacked vertically ── */
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+
+                {/* Forward graph (src → dst) — top half */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+                  <div
+                    style={{
+                      display:        'flex',
+                      alignItems:     'center',
+                      gap:            '8px',
+                      padding:        '4px 12px',
+                      background:     'var(--bg-header)',
+                      borderBottom:   '1px solid var(--border-color)',
+                      flexShrink:     0,
+                    }}
+                  >
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-primary)', letterSpacing: '0.04em' }}>
+                      ▶ FORWARD
+                    </span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                      {srcIp || 'source'} → {dstIp || 'destination'}
+                    </span>
+                    {(phase === 'streaming' || phase === 'submitting') && (
+                      <span className="spinner" style={{ width: '9px', height: '9px', borderWidth: '1.5px' }} />
+                    )}
+                    {(phase === 'enriching' || phase === 'done') && (
+                      <span style={{ fontSize: '11px', color: 'var(--color-success)' }}>✓</span>
+                    )}
+                  </div>
+                  <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                    <DiagramCanvas graph={graph} direction="forward" />
+                  </div>
+                </div>
+
+                {/* Divider */}
+                <div style={{ height: '3px', background: 'var(--border-color)', flexShrink: 0 }} />
+
+                {/* Reverse graph (dst → src) — bottom half */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+                  <div
+                    style={{
+                      display:        'flex',
+                      alignItems:     'center',
+                      gap:            '8px',
+                      padding:        '4px 12px',
+                      background:     'var(--bg-header)',
+                      borderBottom:   '1px solid var(--border-color)',
+                      flexShrink:     0,
+                    }}
+                  >
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-warning, #f59e0b)', letterSpacing: '0.04em' }}>
+                      ◀ REVERSE
+                    </span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                      {dstIp || 'destination'} → {srcIp || 'source'}
+                    </span>
+                    {(phaseReverse === 'streaming' || phaseReverse === 'submitting') && (
+                      <span className="spinner" style={{ width: '9px', height: '9px', borderWidth: '1.5px' }} />
+                    )}
+                    {(phaseReverse === 'enriching' || phaseReverse === 'done') && (
+                      <span style={{ fontSize: '11px', color: 'var(--color-success)' }}>✓</span>
+                    )}
+                  </div>
+                  <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                    <DiagramCanvas graph={graphReverse} direction="reverse" />
+                  </div>
+                </div>
+
+              </div>
+            ) : (
+              /* ── Normal single-graph mode ── */
+              <DiagramCanvas graph={graph} direction="forward" />
+            )}
           </div>
 
           {selectedElement && <DetailPanel />}

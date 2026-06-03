@@ -63,7 +63,10 @@ export default function TraceForm() {
   const {
     srcIp, dstIp,
     phase, progress, error,
+    bidirectional,
+    phaseReverse,
     setSrcIp, setDstIp,
+    setBidirectional,
     runTrace, cancelTrace, clearTrace,
   } = useTraceStore();
 
@@ -146,7 +149,7 @@ export default function TraceForm() {
         </div>
 
         {/* Destination IP */}
-        <div style={{ marginBottom: '12px' }}>
+        <div style={{ marginBottom: '10px' }}>
           <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
             Destination IP
           </label>
@@ -162,6 +165,33 @@ export default function TraceForm() {
           {dstError && (
             <div style={{ fontSize: '11px', color: 'var(--color-error)', marginTop: '3px' }}>{dstError}</div>
           )}
+        </div>
+
+        {/* Bidirectional checkbox */}
+        <div style={{ marginBottom: '12px' }}>
+          <label
+            style={{
+              display:     'flex',
+              alignItems:  'center',
+              gap:         '8px',
+              cursor:      isRunning ? 'not-allowed' : 'pointer',
+              userSelect:  'none',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={bidirectional}
+              onChange={(e) => setBidirectional(e.target.checked)}
+              disabled={isRunning}
+              style={{ width: '14px', height: '14px', cursor: isRunning ? 'not-allowed' : 'pointer', accentColor: 'var(--color-primary)' }}
+            />
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+              Bidirectional
+            </span>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              (also trace {dstIp || 'dst'} → {srcIp || 'src'})
+            </span>
+          </label>
         </div>
 
         {/* Action buttons */}
@@ -221,6 +251,22 @@ export default function TraceForm() {
         <div style={{ padding: '12px 16px 0', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-success)' }}>
           <span className="spinner" style={{ borderTopColor: 'var(--color-success)' }} />
           <span style={{ fontSize: '12px' }}>Graph drawn — enriching interface counters…</span>
+        </div>
+      )}
+
+      {/* Reverse trace status (shown only when bidirectional mode is active) */}
+      {bidirectional && (phaseReverse === 'submitting' || phaseReverse === 'streaming') && (
+        <div style={{ padding: '6px 16px 0', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-primary)' }}>
+          <span className="spinner" style={{ width: '10px', height: '10px', borderWidth: '1.5px' }} />
+          <span style={{ fontSize: '11px' }}>
+            Reverse trace ({dstIp} → {srcIp})…
+          </span>
+        </div>
+      )}
+      {bidirectional && phaseReverse === 'enriching' && (
+        <div style={{ padding: '6px 16px 0', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-success)' }}>
+          <span className="spinner" style={{ width: '10px', height: '10px', borderWidth: '1.5px', borderTopColor: 'var(--color-success)' }} />
+          <span style={{ fontSize: '11px' }}>Reverse graph drawn — enriching…</span>
         </div>
       )}
 

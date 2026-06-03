@@ -33,9 +33,10 @@ const edgeTypes = { connectionEdge: ConnectionEdge };
 interface InnerCanvasProps {
   graph:        GraphResponse;
   containerRef: React.RefObject<HTMLDivElement>;
+  direction:    'forward' | 'reverse';
 }
 
-function InnerCanvas({ graph, containerRef }: InnerCanvasProps) {
+function InnerCanvas({ graph, containerRef, direction }: InnerCanvasProps) {
   // Transform once on mount (component remounts per graphVersion via key)
   const { nodes: initNodes, edges: initEdges } = useMemo(
     () => transformGraph(graph),
@@ -46,10 +47,15 @@ function InnerCanvas({ graph, containerRef }: InnerCanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initEdges);
 
-  const pendingEnrichments      = useTraceStore((s) => s.pendingEnrichments);
-  const clearPendingEnrichments = useTraceStore((s) => s.clearPendingEnrichments);
-  const pendingDeviceUpdates    = useTraceStore((s) => s.pendingDeviceUpdates);
-  const clearPendingDeviceUpdates = useTraceStore((s) => s.clearPendingDeviceUpdates);
+  // Each direction reads its own pending queue so two canvases don't collide.
+  const pendingEnrichments      = useTraceStore((s) =>
+    direction === 'reverse' ? s.pendingEnrichmentsReverse   : s.pendingEnrichments);
+  const clearPendingEnrichments = useTraceStore((s) =>
+    direction === 'reverse' ? s.clearPendingEnrichmentsReverse : s.clearPendingEnrichments);
+  const pendingDeviceUpdates    = useTraceStore((s) =>
+    direction === 'reverse' ? s.pendingDeviceUpdatesReverse : s.pendingDeviceUpdates);
+  const clearPendingDeviceUpdates = useTraceStore((s) =>
+    direction === 'reverse' ? s.clearPendingDeviceUpdatesReverse : s.clearPendingDeviceUpdates);
 
   // Apply streaming interface updates in one batched pass per animation frame.
   useEffect(() => {
@@ -239,13 +245,15 @@ function EmptyState() {
 // ---------------------------------------------------------------------------
 
 interface DiagramCanvasProps {
-  graph: GraphResponse | null;
+  graph:      GraphResponse | null;
+  direction?: 'forward' | 'reverse';
 }
 
-export default function DiagramCanvas({ graph }: DiagramCanvasProps) {
+export default function DiagramCanvas({ graph, direction = 'forward' }: DiagramCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  // graphVersion increments each time a new graph is loaded, forcing InnerCanvas remount
-  const graphVersion = useTraceStore((s) => s.graphVersion);
+  // Each direction tracks its own graphVersion so remounts are independent.
+  const graphVersion = useTraceStore((s) =>
+    direction === 'reverse' ? s.graphVersionReverse : s.graphVersion);
 
   return (
     <div
@@ -261,7 +269,7 @@ export default function DiagramCanvas({ graph }: DiagramCanvasProps) {
       {graph ? (
         // key={graphVersion} ensures React remounts InnerCanvas for each new graph,
         // which re-runs fitView and reinitialises node/edge state cleanly.
-        <InnerCanvas key={graphVersion} graph={graph} containerRef={containerRef} />
+        <InnerCanvas key={graphVersion} graph={graph} containerRef={containerRef} direction={direction} />
       ) : (
         <EmptyState />
       )}
